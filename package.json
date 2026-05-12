@@ -11,6 +11,8 @@
     "db:migrate": "drizzle-kit migrate",
     "db:seed": "tsx db/seed.ts",
     "db:push": "drizzle-kit push",
+    "db:supabase:migrate": "drizzle-kit migrate",
+    "db:supabase:seed": "tsx db/seed.ts",
     "db:studio": "drizzle-kit studio",
     "db:studio:local": "drizzle-kit studio --port 4983",
     "docker:postgres": "docker compose up -d postgres"

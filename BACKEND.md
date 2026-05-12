@@ -67,6 +67,31 @@ https://local.drizzle.studio
 
 Catatan: `http://127.0.0.1:4983` adalah gateway lokal Drizzle Studio, bukan halaman UI. Jika dibuka langsung dan muncul `404`, itu normal.
 
+## Supabase
+
+Untuk memakai Supabase Postgres:
+
+1. Buka Supabase Dashboard > Project Settings > Database.
+2. Ambil connection string Postgres. Untuk aplikasi server, pakai Transaction Pooler.
+3. Pastikan URL memiliki `sslmode=require`.
+4. Isi `.env.local`:
+
+```env
+DATABASE_URL=postgresql://postgres.[PROJECT_REF]:[PASSWORD]@aws-0-[REGION].pooler.supabase.com:6543/postgres?sslmode=require
+BETTER_AUTH_SECRET=change-this-to-a-long-random-secret
+BETTER_AUTH_URL=http://127.0.0.1:3001
+NEXT_PUBLIC_BETTER_AUTH_URL=http://127.0.0.1:3001
+```
+
+5. Jalankan migrasi dan seed:
+
+```bash
+npm run db:supabase:migrate
+npm run db:supabase:seed
+```
+
+Jika deploy production, ganti `BETTER_AUTH_URL` dan `NEXT_PUBLIC_BETTER_AUTH_URL` ke domain production.
+
 ## Auth
 
 Better Auth mounted di:

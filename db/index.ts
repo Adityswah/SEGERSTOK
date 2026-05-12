@@ -6,7 +6,7 @@ import postgres from "postgres";
 import * as schema from "@/db/schema";
 
 const connectionString =
-  process.env.DATABASE_URL ?? "postgres://postgres:postgres@localhost:5432/sotostock";
+  process.env.DATABASE_URL ?? "postgres://postgres:postgres@localhost:55432/sotostock";
 
 const globalForDb = globalThis as unknown as {
   postgresClient?: ReturnType<typeof postgres>;
