@@ -3,6 +3,8 @@ import { sql } from "drizzle-orm";
 import { db } from "@/db";
 import { ok, serverError } from "@/lib/api/responses";
 
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   try {
     const startedAt = Date.now();
