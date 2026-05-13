@@ -17,6 +17,8 @@ Untuk production, `BETTER_AUTH_SECRET` wajib diganti dengan secret random yang k
 
 ## Database
 
+Catatan deployment: Drizzle Kit dijalankan via `npx` pada script database, bukan disimpan sebagai dependency project. Ini menjaga install/build Vercel tetap bersih dari warning deprecated `@esbuild-kit/*` yang masih dibawa oleh `drizzle-kit@0.31.x`.
+
 Start PostgreSQL lokal via Docker pada host port `55432`:
 
 ```bash
