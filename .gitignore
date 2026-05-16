@@ -4,3 +4,5 @@ node_modules
 .env*.local
 !.env.example
 drizzle-studio*.log
+
+.vercel
