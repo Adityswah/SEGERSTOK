@@ -95,6 +95,7 @@ type SessionUser = {
 };
 
 const roles: Role[] = ["Owner", "Kasir", "Cheef", "Waiters"];
+const publicSignupRoles: Exclude<Role, "Owner">[] = ["Kasir", "Cheef", "Waiters"];
 const staffRoles: Role[] = ["Kasir", "Cheef", "Waiters"];
 const allCategories: Category[] = [
   "Protein & Daging",
@@ -556,10 +557,10 @@ function AuthScreen({
   onThemeChange: (theme: ThemeMode) => void;
 }) {
   const [mode, setMode] = useState<AuthMode>("signin");
-  const [role, setRole] = useState<Role>("Owner");
-  const [name, setName] = useState("Owner SotoStock");
-  const [email, setEmail] = useState("owner@sotostock.local");
-  const [password, setPassword] = useState("password123");
+  const [role, setRole] = useState<Exclude<Role, "Owner">>("Kasir");
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
 
@@ -625,8 +626,8 @@ function AuthScreen({
               </label>
               <label className="grid gap-2 text-sm font-semibold">
                 Role
-                <Select onChange={(event) => setRole(event.target.value as Role)} value={role}>
-                  {roles.map((item) => (
+                <Select onChange={(event) => setRole(event.target.value as Exclude<Role, "Owner">)} value={role}>
+                  {publicSignupRoles.map((item) => (
                     <option key={item}>{item}</option>
                   ))}
                 </Select>
@@ -651,8 +652,8 @@ function AuthScreen({
         </Button>
 
         <div className="mt-5 rounded-md border bg-muted/40 p-3 text-xs leading-5 text-muted-foreground">
-          Aplikasi terkunci penuh oleh Better Auth. Buat akun pertama sebagai Owner, lalu gunakan session itu untuk
-          mengakses endpoint Owner-only.
+          Aplikasi terkunci penuh oleh Better Auth. Akun baru dari form publik hanya bisa memakai role operasional;
+          Owner dikelola lewat database/admin.
         </div>
       </form>
     </main>
