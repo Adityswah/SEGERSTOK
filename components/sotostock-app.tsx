@@ -61,6 +61,9 @@ type AuthMode = "signin" | "signup";
 type DashboardRangePreset = "today" | "yesterday" | "7d" | "this-month" | "last-month" | "custom";
 type NavItem = (typeof navItems)[number];
 type StockInputMode = "regular" | "bom";
+type SortDirection = "" | "asc" | "desc";
+type AutoFilterKind = "text" | "number" | "date";
+type AutoFilterState<T extends string> = { column: T | null; direction: SortDirection };
 
 type ApiEnvelope<T> = { data: T };
 type ApiError = { error?: { message?: string } };
@@ -277,13 +280,20 @@ function canAccessBomUi(role: Role) {
   return role === "Owner" || role === "Cheef";
 }
 
-function includesFilterValue(value: string | number, filter: string, extra: Array<string | number> = []) {
-  const normalizedFilter = filter.trim().toLowerCase();
-  if (!normalizedFilter) return true;
-  const haystack = [value, ...extra]
-    .map((entry) => String(entry ?? "").toLowerCase())
-    .join(" ");
-  return haystack.includes(normalizedFilter);
+function compareText(a: string, b: string) {
+  return a.localeCompare(b, "id", { sensitivity: "base", numeric: true });
+}
+
+function compareNumber(a: number, b: number) {
+  return a - b;
+}
+
+function compareDate(a: Date, b: Date) {
+  return a.getTime() - b.getTime();
+}
+
+function applySortDirection(result: number, direction: SortDirection) {
+  return direction === "desc" ? result * -1 : result;
 }
 
 async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
@@ -324,6 +334,45 @@ function combineDateWithCurrentTime(dateValue: string) {
 
 function transactionActivityDate(transaction: Pick<TransactionRow, "createdAt" | "transactionDate">) {
   return new Date(transaction.createdAt ?? transaction.transactionDate);
+}
+
+function AutoFilterSelect({
+  label,
+  kind,
+  value,
+  onChange,
+}: {
+  label: string;
+  kind: AutoFilterKind;
+  value: SortDirection;
+  onChange: (value: SortDirection) => void;
+}) {
+  return (
+    <label className="grid gap-1 text-[11px] font-semibold normal-case text-muted-foreground">
+      <span>{label}</span>
+      <Select className="h-8 min-w-[168px]" onChange={(event) => onChange(event.target.value as SortDirection)} value={value}>
+        <option value="">AutoFilter</option>
+        {kind === "text" && (
+          <>
+            <option value="asc">Sort A to Z</option>
+            <option value="desc">Sort Z to A</option>
+          </>
+        )}
+        {kind === "number" && (
+          <>
+            <option value="asc">Sort smallest to largest</option>
+            <option value="desc">Sort largest to smallest</option>
+          </>
+        )}
+        {kind === "date" && (
+          <>
+            <option value="asc">Sort oldest to latest</option>
+            <option value="desc">Sort latest to oldest</option>
+          </>
+        )}
+      </Select>
+    </label>
+  );
 }
 
 function monthStart(date: Date) {
@@ -2072,30 +2121,42 @@ function StockPage({
   onCategory: (value: Category | "Semua") => void;
   onDetail: (item: Ingredient) => void;
 }) {
-  const [filters, setFilters] = useState({
-    name: "",
-    category: "",
-    stock: "",
-    minimum: "",
-    status: "",
-    value: "",
+  const [stockSort, setStockSort] = useState<AutoFilterState<"name" | "category" | "stock" | "minimum" | "status" | "value">>({
+    column: null,
+    direction: "",
   });
   const stockRows = useMemo(
-    () =>
-      filteredInventory.filter((item) => {
-        const status = stockStatus(item).label;
-        const stockValue = item.stock * item.price;
-        return (
-          includesFilterValue(item.name, filters.name) &&
-          includesFilterValue(item.category, filters.category) &&
-          includesFilterValue(item.stock, filters.stock, [item.unit]) &&
-          includesFilterValue(item.minimum, filters.minimum, [item.unit]) &&
-          (!filters.status || status === filters.status) &&
-          includesFilterValue(stockValue, filters.value, [formatRupiah(stockValue)])
-        );
-      }),
-    [filteredInventory, filters],
+    () => {
+      if (!stockSort.column || !stockSort.direction) return filteredInventory;
+      return [...filteredInventory].sort((left, right) => {
+        const leftStatus = stockStatus(left).label;
+        const rightStatus = stockStatus(right).label;
+        const leftValue = left.stock * left.price;
+        const rightValue = right.stock * right.price;
+        switch (stockSort.column) {
+          case "name":
+            return applySortDirection(compareText(left.name, right.name), stockSort.direction);
+          case "category":
+            return applySortDirection(compareText(left.category, right.category), stockSort.direction);
+          case "stock":
+            return applySortDirection(compareNumber(left.stock, right.stock), stockSort.direction);
+          case "minimum":
+            return applySortDirection(compareNumber(left.minimum, right.minimum), stockSort.direction);
+          case "status":
+            return applySortDirection(compareText(leftStatus, rightStatus), stockSort.direction);
+          case "value":
+            return applySortDirection(compareNumber(leftValue, rightValue), stockSort.direction);
+          default:
+            return 0;
+        }
+      });
+    },
+    [filteredInventory, stockSort],
   );
+
+  function setStockSortColumn(column: "name" | "category" | "stock" | "minimum" | "status" | "value", direction: SortDirection) {
+    setStockSort(direction ? { column, direction } : { column: null, direction: "" });
+  }
 
   return (
     <Card className="bg-card/95">
@@ -2123,45 +2184,16 @@ function StockPage({
       </CardHeader>
       <CardContent>
         <div className="mb-4 grid gap-2 md:hidden">
-          <Input
-            onChange={(event) => setFilters((current) => ({ ...current, name: event.target.value }))}
-            placeholder="Filter bahan"
-            value={filters.name}
-          />
-          <div className="grid grid-cols-2 gap-2">
-            <Input
-              onChange={(event) => setFilters((current) => ({ ...current, category: event.target.value }))}
-              placeholder="Filter kategori"
-              value={filters.category}
-            />
-            <Select
-              onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))}
-              value={filters.status}
-            >
-              <option value="">Semua status</option>
-              {["Aman", "Rendah", "Kritis", "Habis"].map((item) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
-            </Select>
-          </div>
-          <div className="grid grid-cols-3 gap-2">
-            <Input
-              onChange={(event) => setFilters((current) => ({ ...current, stock: event.target.value }))}
-              placeholder="Stok"
-              value={filters.stock}
-            />
-            <Input
-              onChange={(event) => setFilters((current) => ({ ...current, minimum: event.target.value }))}
-              placeholder="Minimum"
-              value={filters.minimum}
-            />
-            <Input
-              onChange={(event) => setFilters((current) => ({ ...current, value: event.target.value }))}
-              placeholder="Nilai"
-              value={filters.value}
-            />
+          <div className="rounded-md border bg-muted/20 p-3">
+            <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">AutoFilter</p>
+            <div className="grid gap-2">
+              <AutoFilterSelect label="Bahan" kind="text" onChange={(value) => setStockSortColumn("name", value)} value={stockSort.column === "name" ? stockSort.direction : ""} />
+              <AutoFilterSelect label="Kategori" kind="text" onChange={(value) => setStockSortColumn("category", value)} value={stockSort.column === "category" ? stockSort.direction : ""} />
+              <AutoFilterSelect label="Stok" kind="number" onChange={(value) => setStockSortColumn("stock", value)} value={stockSort.column === "stock" ? stockSort.direction : ""} />
+              <AutoFilterSelect label="Minimum" kind="number" onChange={(value) => setStockSortColumn("minimum", value)} value={stockSort.column === "minimum" ? stockSort.direction : ""} />
+              <AutoFilterSelect label="Status" kind="text" onChange={(value) => setStockSortColumn("status", value)} value={stockSort.column === "status" ? stockSort.direction : ""} />
+              <AutoFilterSelect label="Nilai" kind="number" onChange={(value) => setStockSortColumn("value", value)} value={stockSort.column === "value" ? stockSort.direction : ""} />
+            </div>
           </div>
         </div>
         <div className="grid gap-3 md:hidden">
@@ -2218,29 +2250,22 @@ function StockPage({
               </tr>
               <tr className="border-t bg-background/80 normal-case">
                 <th className="px-4 py-2 text-left">
-                  <Input className="h-8" onChange={(event) => setFilters((current) => ({ ...current, name: event.target.value }))} placeholder="Filter bahan" value={filters.name} />
+                  <AutoFilterSelect label="Bahan" kind="text" onChange={(value) => setStockSortColumn("name", value)} value={stockSort.column === "name" ? stockSort.direction : ""} />
                 </th>
                 <th className="px-4 py-2 text-left">
-                  <Input className="h-8" onChange={(event) => setFilters((current) => ({ ...current, category: event.target.value }))} placeholder="Filter kategori" value={filters.category} />
+                  <AutoFilterSelect label="Kategori" kind="text" onChange={(value) => setStockSortColumn("category", value)} value={stockSort.column === "category" ? stockSort.direction : ""} />
                 </th>
                 <th className="px-4 py-2 text-left">
-                  <Input className="h-8" onChange={(event) => setFilters((current) => ({ ...current, stock: event.target.value }))} placeholder="Filter stok" value={filters.stock} />
+                  <AutoFilterSelect label="Stok" kind="number" onChange={(value) => setStockSortColumn("stock", value)} value={stockSort.column === "stock" ? stockSort.direction : ""} />
                 </th>
                 <th className="px-4 py-2 text-left">
-                  <Input className="h-8" onChange={(event) => setFilters((current) => ({ ...current, minimum: event.target.value }))} placeholder="Filter minimum" value={filters.minimum} />
+                  <AutoFilterSelect label="Minimum" kind="number" onChange={(value) => setStockSortColumn("minimum", value)} value={stockSort.column === "minimum" ? stockSort.direction : ""} />
                 </th>
                 <th className="px-4 py-2 text-left">
-                  <Select className="h-8" onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))} value={filters.status}>
-                    <option value="">Semua status</option>
-                    {["Aman", "Rendah", "Kritis", "Habis"].map((item) => (
-                      <option key={item} value={item}>
-                        {item}
-                      </option>
-                    ))}
-                  </Select>
+                  <AutoFilterSelect label="Status" kind="text" onChange={(value) => setStockSortColumn("status", value)} value={stockSort.column === "status" ? stockSort.direction : ""} />
                 </th>
                 <th className="px-4 py-2 text-left">
-                  <Input className="h-8" onChange={(event) => setFilters((current) => ({ ...current, value: event.target.value }))} placeholder="Filter nilai" value={filters.value} />
+                  <AutoFilterSelect label="Nilai" kind="number" onChange={(value) => setStockSortColumn("value", value)} value={stockSort.column === "value" ? stockSort.direction : ""} />
                 </th>
                 <th className="px-4 py-2 text-right text-[11px] text-muted-foreground">{stockRows.length} baris</th>
               </tr>
@@ -2763,17 +2788,13 @@ function OpnamePage({
 }) {
   const isInputDay = clock.getDate() === 30;
   const inputRoles = staffRoles;
-  const [filters, setFilters] = useState({
-    name: "",
-    systemStock: "",
-    Kasir: "",
-    Cheef: "",
-    Waiters: "",
-    variance: "",
+  const [opnameSort, setOpnameSort] = useState<AutoFilterState<"name" | "systemStock" | StaffRole | "variance">>({
+    column: null,
+    direction: "",
   });
   const opnameRows = useMemo(
-    () =>
-      inventory
+    () => {
+      const rows = inventory
         .map((item) => {
           const values = inputRoles.map((inputRole) => Number(actualInputs[item.id]?.[inputRole] || 0)).filter(Boolean);
           const avg = values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : item.stock;
@@ -2787,19 +2808,34 @@ function OpnamePage({
               Waiters: actualInputs[item.id]?.Waiters ?? "",
             },
           };
-        })
-        .filter(({ item, gap, values }) => {
-          return (
-            includesFilterValue(item.name, filters.name) &&
-            includesFilterValue(item.stock, filters.systemStock, [item.unit]) &&
-            includesFilterValue(values.Kasir, filters.Kasir) &&
-            includesFilterValue(values.Cheef, filters.Cheef) &&
-            includesFilterValue(values.Waiters, filters.Waiters) &&
-            includesFilterValue(gap, filters.variance, [item.unit])
-          );
-        }),
-    [actualInputs, filters, inputRoles, inventory],
+        });
+      if (!opnameSort.column || !opnameSort.direction) return rows;
+      return [...rows].sort((left, right) => {
+        switch (opnameSort.column) {
+          case "name":
+            return applySortDirection(compareText(left.item.name, right.item.name), opnameSort.direction);
+          case "systemStock":
+            return applySortDirection(compareNumber(left.item.stock, right.item.stock), opnameSort.direction);
+          case "Kasir":
+          case "Cheef":
+          case "Waiters":
+            return applySortDirection(
+              compareNumber(Number(left.values[opnameSort.column] || 0), Number(right.values[opnameSort.column] || 0)),
+              opnameSort.direction,
+            );
+          case "variance":
+            return applySortDirection(compareNumber(left.gap, right.gap), opnameSort.direction);
+          default:
+            return 0;
+        }
+      });
+    },
+    [actualInputs, inputRoles, inventory, opnameSort],
   );
+
+  function setOpnameSortColumn(column: "name" | "systemStock" | StaffRole | "variance", direction: SortDirection) {
+    setOpnameSort(direction ? { column, direction } : { column: null, direction: "" });
+  }
 
   return (
     <div className="space-y-5">
@@ -2823,43 +2859,20 @@ function OpnamePage({
           <p className="text-[11px] font-bold uppercase text-muted-foreground">Stock opname</p>
           <CardTitle className="mt-1">Kolom Aktual Lapangan</CardTitle>
         </CardHeader>
-      <CardContent>
-        <div className="mb-4 grid gap-2 md:hidden">
-          <Input
-            onChange={(event) => setFilters((current) => ({ ...current, name: event.target.value }))}
-            placeholder="Filter bahan"
-            value={filters.name}
-          />
-          <div className="grid grid-cols-2 gap-2">
-            <Input
-              onChange={(event) => setFilters((current) => ({ ...current, systemStock: event.target.value }))}
-              placeholder="Stok aplikasi"
-              value={filters.systemStock}
-            />
-            <Input
-              onChange={(event) => setFilters((current) => ({ ...current, variance: event.target.value }))}
-              placeholder="Selisih"
-              value={filters.variance}
-            />
+        <CardContent>
+          <div className="mb-4 grid gap-2 md:hidden">
+            <div className="rounded-md border bg-muted/20 p-3">
+              <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">AutoFilter</p>
+              <div className="grid gap-2">
+                <AutoFilterSelect label="Bahan" kind="text" onChange={(value) => setOpnameSortColumn("name", value)} value={opnameSort.column === "name" ? opnameSort.direction : ""} />
+                <AutoFilterSelect label="Stok aplikasi" kind="number" onChange={(value) => setOpnameSortColumn("systemStock", value)} value={opnameSort.column === "systemStock" ? opnameSort.direction : ""} />
+                <AutoFilterSelect label="Kasir" kind="number" onChange={(value) => setOpnameSortColumn("Kasir", value)} value={opnameSort.column === "Kasir" ? opnameSort.direction : ""} />
+                <AutoFilterSelect label="Cheef" kind="number" onChange={(value) => setOpnameSortColumn("Cheef", value)} value={opnameSort.column === "Cheef" ? opnameSort.direction : ""} />
+                <AutoFilterSelect label="Waiters" kind="number" onChange={(value) => setOpnameSortColumn("Waiters", value)} value={opnameSort.column === "Waiters" ? opnameSort.direction : ""} />
+                <AutoFilterSelect label="Estimasi selisih" kind="number" onChange={(value) => setOpnameSortColumn("variance", value)} value={opnameSort.column === "variance" ? opnameSort.direction : ""} />
+              </div>
+            </div>
           </div>
-          <div className="grid grid-cols-3 gap-2">
-            <Input
-              onChange={(event) => setFilters((current) => ({ ...current, Kasir: event.target.value }))}
-              placeholder="Kasir"
-              value={filters.Kasir}
-            />
-            <Input
-              onChange={(event) => setFilters((current) => ({ ...current, Cheef: event.target.value }))}
-              placeholder="Cheef"
-              value={filters.Cheef}
-            />
-            <Input
-              onChange={(event) => setFilters((current) => ({ ...current, Waiters: event.target.value }))}
-              placeholder="Waiters"
-              value={filters.Waiters}
-            />
-          </div>
-        </div>
           <div className="grid gap-3 lg:hidden">
             {opnameRows.map(({ item, gap }) => {
               return (
@@ -2905,23 +2918,18 @@ function OpnamePage({
                 </tr>
                 <tr className="border-t bg-background/80 normal-case">
                   <th className="px-4 py-2 text-left">
-                    <Input className="h-8" onChange={(event) => setFilters((current) => ({ ...current, name: event.target.value }))} placeholder="Filter bahan" value={filters.name} />
+                    <AutoFilterSelect label="Bahan" kind="text" onChange={(value) => setOpnameSortColumn("name", value)} value={opnameSort.column === "name" ? opnameSort.direction : ""} />
                   </th>
                   <th className="px-4 py-2 text-left">
-                    <Input className="h-8" onChange={(event) => setFilters((current) => ({ ...current, systemStock: event.target.value }))} placeholder="Filter stok aplikasi" value={filters.systemStock} />
+                    <AutoFilterSelect label="Stok aplikasi" kind="number" onChange={(value) => setOpnameSortColumn("systemStock", value)} value={opnameSort.column === "systemStock" ? opnameSort.direction : ""} />
                   </th>
                   {inputRoles.map((inputRole) => (
                     <th className="px-4 py-2 text-left" key={`${inputRole}-filter`}>
-                      <Input
-                        className="h-8"
-                        onChange={(event) => setFilters((current) => ({ ...current, [inputRole]: event.target.value }))}
-                        placeholder={`Filter ${inputRole}`}
-                        value={filters[inputRole]}
-                      />
+                      <AutoFilterSelect label={`Aktual ${inputRole}`} kind="number" onChange={(value) => setOpnameSortColumn(inputRole, value)} value={opnameSort.column === inputRole ? opnameSort.direction : ""} />
                     </th>
                   ))}
                   <th className="px-4 py-2 text-left">
-                    <Input className="h-8" onChange={(event) => setFilters((current) => ({ ...current, variance: event.target.value }))} placeholder="Filter selisih" value={filters.variance} />
+                    <AutoFilterSelect label="Estimasi selisih" kind="number" onChange={(value) => setOpnameSortColumn("variance", value)} value={opnameSort.column === "variance" ? opnameSort.direction : ""} />
                   </th>
                 </tr>
               </thead>
@@ -3396,27 +3404,51 @@ function ReportPage({ inventory, transactions, role }: { inventory: Ingredient[]
   const [reportMessage, setReportMessage] = useState("");
   const [bomHistory, setBomHistory] = useState<BomProductionHistoryRow[]>([]);
   const [expandedBomHistoryId, setExpandedBomHistoryId] = useState<string | null>(null);
-  const [transactionFilters, setTransactionFilters] = useState({
-    time: "",
-    type: "",
-    ingredient: "",
-    quantity: "",
-    operator: "",
+  const [transactionSort, setTransactionSort] = useState<AutoFilterState<"time" | "type" | "ingredient" | "quantity" | "operator">>({
+    column: null,
+    direction: "",
   });
   const filteredTransactions = useMemo(
+    () => {
+      const rows = [...transactions];
+      if (!transactionSort.column || !transactionSort.direction) return rows;
+      return rows.sort((left, right) => {
+        const leftIngredient = ingredientById.get(left.ingredientId);
+        const rightIngredient = ingredientById.get(right.ingredientId);
+        switch (transactionSort.column) {
+          case "time":
+            return applySortDirection(compareDate(transactionActivityDate(left), transactionActivityDate(right)), transactionSort.direction);
+          case "type":
+            return applySortDirection(compareText(left.type, right.type), transactionSort.direction);
+          case "ingredient":
+            return applySortDirection(compareText(leftIngredient?.name ?? left.ingredientId, rightIngredient?.name ?? right.ingredientId), transactionSort.direction);
+          case "quantity":
+            return applySortDirection(compareNumber(Number(left.quantity), Number(right.quantity)), transactionSort.direction);
+          case "operator":
+            return applySortDirection(compareText(left.operatorName, right.operatorName), transactionSort.direction);
+          default:
+            return 0;
+        }
+      });
+    },
+    [ingredientById, transactionSort, transactions],
+  );
+
+  function setTransactionSortColumn(column: "time" | "type" | "ingredient" | "quantity" | "operator", direction: SortDirection) {
+    setTransactionSort(direction ? { column, direction } : { column: null, direction: "" });
+  }
+
+  const transactionCards = useMemo(
     () =>
-      transactions.filter((item) => {
+      filteredTransactions.map((item) => {
         const ingredient = ingredientById.get(item.ingredientId);
-        const timeLabel = transactionActivityDate(item).toLocaleString("id-ID");
-        return (
-          includesFilterValue(timeLabel, transactionFilters.time) &&
-          (!transactionFilters.type || item.type === transactionFilters.type) &&
-          includesFilterValue(ingredient?.name ?? item.ingredientId, transactionFilters.ingredient) &&
-          includesFilterValue(item.quantity, transactionFilters.quantity, [ingredient?.unit ?? ""]) &&
-          includesFilterValue(item.operatorName, transactionFilters.operator)
-        );
+        return {
+          item,
+          ingredient,
+          timestamp: transactionActivityDate(item),
+        };
       }),
-    [ingredientById, transactionFilters, transactions],
+    [filteredTransactions, ingredientById],
   );
 
   useEffect(() => {
@@ -3488,48 +3520,25 @@ function ReportPage({ inventory, transactions, role }: { inventory: Ingredient[]
           <p className="text-[11px] font-bold uppercase text-muted-foreground">Transaction log</p>
           <CardTitle className="mt-1">Audit Trail dari API</CardTitle>
         </CardHeader>
-      <CardContent>
-        <div className="grid gap-3 md:hidden">
-          <div className="grid gap-2">
-            <Input
-              onChange={(event) => setTransactionFilters((current) => ({ ...current, time: event.target.value }))}
-              placeholder="Filter waktu"
-              value={transactionFilters.time}
-            />
-            <Select
-              onChange={(event) => setTransactionFilters((current) => ({ ...current, type: event.target.value }))}
-              value={transactionFilters.type}
-            >
-              <option value="">Semua tipe</option>
-              <option value="masuk">Masuk</option>
-              <option value="keluar">Keluar</option>
-            </Select>
-            <Input
-              onChange={(event) => setTransactionFilters((current) => ({ ...current, ingredient: event.target.value }))}
-              placeholder="Filter bahan"
-              value={transactionFilters.ingredient}
-            />
-            <div className="grid grid-cols-2 gap-2">
-              <Input
-                onChange={(event) => setTransactionFilters((current) => ({ ...current, quantity: event.target.value }))}
-                placeholder="Filter jumlah"
-                value={transactionFilters.quantity}
-              />
-              <Input
-                onChange={(event) => setTransactionFilters((current) => ({ ...current, operator: event.target.value }))}
-                placeholder="Filter operator"
-                value={transactionFilters.operator}
-              />
+        <CardContent>
+          <div className="grid gap-3 md:hidden">
+            <div className="rounded-md border bg-muted/20 p-3">
+              <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">AutoFilter</p>
+              <div className="grid gap-2">
+                <AutoFilterSelect label="Waktu" kind="date" onChange={(value) => setTransactionSortColumn("time", value)} value={transactionSort.column === "time" ? transactionSort.direction : ""} />
+                <AutoFilterSelect label="Tipe" kind="text" onChange={(value) => setTransactionSortColumn("type", value)} value={transactionSort.column === "type" ? transactionSort.direction : ""} />
+                <AutoFilterSelect label="Bahan" kind="text" onChange={(value) => setTransactionSortColumn("ingredient", value)} value={transactionSort.column === "ingredient" ? transactionSort.direction : ""} />
+                <AutoFilterSelect label="Jumlah" kind="number" onChange={(value) => setTransactionSortColumn("quantity", value)} value={transactionSort.column === "quantity" ? transactionSort.direction : ""} />
+                <AutoFilterSelect label="Operator" kind="text" onChange={(value) => setTransactionSortColumn("operator", value)} value={transactionSort.column === "operator" ? transactionSort.direction : ""} />
+              </div>
             </div>
-          </div>
-          {filteredTransactions.map((item) => {
-              const ingredient = ingredientById.get(item.ingredientId);
+            {transactionCards.map(({ item, ingredient, timestamp }) => {
               return (
                 <div key={item.id} className="rounded-md border bg-muted/35 p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="truncate font-bold">{ingredient?.name ?? item.ingredientId}</p>
-                      <p className="mt-1 text-xs text-muted-foreground">{transactionActivityDate(item).toLocaleString("id-ID")}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">{timestamp.toLocaleString("id-ID")}</p>
                     </div>
                     <Badge variant={item.type === "keluar" ? "warning" : "success"}>{item.type}</Badge>
                   </div>
@@ -3539,9 +3548,9 @@ function ReportPage({ inventory, transactions, role }: { inventory: Ingredient[]
                   </div>
                 </div>
               );
-          })}
-          {!filteredTransactions.length && <EmptyState message="Belum ada transaksi atau role Anda bukan Owner." />}
-        </div>
+            })}
+            {!transactionCards.length && <EmptyState message="Belum ada transaksi atau role Anda bukan Owner." />}
+          </div>
           <div className="hidden overflow-x-auto rounded-md border md:block">
             <table className="w-full min-w-[650px] text-sm">
               <thead className="bg-muted/70 text-xs uppercase text-muted-foreground">
@@ -3554,32 +3563,27 @@ function ReportPage({ inventory, transactions, role }: { inventory: Ingredient[]
                 </tr>
                 <tr className="border-t bg-background/80 normal-case">
                   <th className="px-4 py-2 text-left">
-                    <Input className="h-8" onChange={(event) => setTransactionFilters((current) => ({ ...current, time: event.target.value }))} placeholder="Filter waktu" value={transactionFilters.time} />
+                    <AutoFilterSelect label="Waktu" kind="date" onChange={(value) => setTransactionSortColumn("time", value)} value={transactionSort.column === "time" ? transactionSort.direction : ""} />
                   </th>
                   <th className="px-4 py-2 text-left">
-                    <Select className="h-8" onChange={(event) => setTransactionFilters((current) => ({ ...current, type: event.target.value }))} value={transactionFilters.type}>
-                      <option value="">Semua tipe</option>
-                      <option value="masuk">Masuk</option>
-                      <option value="keluar">Keluar</option>
-                    </Select>
+                    <AutoFilterSelect label="Tipe" kind="text" onChange={(value) => setTransactionSortColumn("type", value)} value={transactionSort.column === "type" ? transactionSort.direction : ""} />
                   </th>
                   <th className="px-4 py-2 text-left">
-                    <Input className="h-8" onChange={(event) => setTransactionFilters((current) => ({ ...current, ingredient: event.target.value }))} placeholder="Filter bahan" value={transactionFilters.ingredient} />
+                    <AutoFilterSelect label="Bahan" kind="text" onChange={(value) => setTransactionSortColumn("ingredient", value)} value={transactionSort.column === "ingredient" ? transactionSort.direction : ""} />
                   </th>
                   <th className="px-4 py-2 text-left">
-                    <Input className="h-8" onChange={(event) => setTransactionFilters((current) => ({ ...current, quantity: event.target.value }))} placeholder="Filter jumlah" value={transactionFilters.quantity} />
+                    <AutoFilterSelect label="Jumlah" kind="number" onChange={(value) => setTransactionSortColumn("quantity", value)} value={transactionSort.column === "quantity" ? transactionSort.direction : ""} />
                   </th>
                   <th className="px-4 py-2 text-left">
-                    <Input className="h-8" onChange={(event) => setTransactionFilters((current) => ({ ...current, operator: event.target.value }))} placeholder="Filter operator" value={transactionFilters.operator} />
+                    <AutoFilterSelect label="Operator" kind="text" onChange={(value) => setTransactionSortColumn("operator", value)} value={transactionSort.column === "operator" ? transactionSort.direction : ""} />
                   </th>
                 </tr>
               </thead>
               <tbody>
-                {filteredTransactions.map((item) => {
-                  const ingredient = ingredientById.get(item.ingredientId);
+                {transactionCards.map(({ item, ingredient, timestamp }) => {
                   return (
                     <tr key={item.id} className="border-t">
-                      <td className="px-4 py-3 font-mono">{transactionActivityDate(item).toLocaleString("id-ID")}</td>
+                      <td className="px-4 py-3 font-mono">{timestamp.toLocaleString("id-ID")}</td>
                       <td className="px-4 py-3"><Badge variant={item.type === "keluar" ? "warning" : "success"}>{item.type}</Badge></td>
                       <td className="px-4 py-3 font-bold">{ingredient?.name ?? item.ingredientId}</td>
                       <td className="px-4 py-3 font-mono">{Number(item.quantity)} {ingredient?.unit ?? ""}</td>
