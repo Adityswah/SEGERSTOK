@@ -21,6 +21,14 @@ export function forbidden(message = "Forbidden") {
   return NextResponse.json({ error: { message } }, { status: 403 });
 }
 
+export function payloadTooLarge(message = "Payload too large") {
+  return NextResponse.json({ error: { message } }, { status: 413 });
+}
+
+export function tooManyRequests(message = "Too many requests") {
+  return NextResponse.json({ error: { message } }, { status: 429 });
+}
+
 export function serverError(error: unknown) {
   if (error instanceof ZodError) {
     return badRequest("Validation failed", error.flatten());

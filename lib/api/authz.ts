@@ -30,3 +30,7 @@ export function canWriteStock(role: Role) {
 export function canWriteActual(role: Role) {
   return ["Owner", "Kasir", "Cheef", "Waiters"].includes(role);
 }
+
+export function canAccessBom(role: Role) {
+  return ["Owner", "Cheef"].includes(role);
+}

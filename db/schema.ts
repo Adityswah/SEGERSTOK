@@ -1,6 +1,7 @@
 import { relations } from "drizzle-orm";
 import {
   boolean,
+  date,
   index,
   integer,
   numeric,
@@ -13,14 +14,14 @@ import {
 } from "drizzle-orm/pg-core";
 
 export const roleEnum = pgEnum("role", ["Owner", "Kasir", "Cheef", "Waiters"]);
-export const categoryEnum = pgEnum("ingredient_category", [
-  "Protein & Daging",
-  "Sayuran & Pelengkap",
-  "Bumbu Basah & Rempah Segar",
-  "Bahan Kering & Bumbu Kering",
-]);
 export const stockTransactionTypeEnum = pgEnum("stock_transaction_type", ["masuk", "keluar"]);
 export const predictionRiskEnum = pgEnum("prediction_risk", ["Rendah", "Sedang", "Tinggi"]);
+export const aiRecommendationActionEnum = pgEnum("ai_recommendation_action", [
+  "beli-sekarang",
+  "beli-bertahap",
+  "tunda-beli",
+]);
+export const aiPipelineRunStatusEnum = pgEnum("ai_pipeline_run_status", ["success", "partial", "failed"]);
 
 export const user = pgTable("user", {
   id: text("id").primaryKey(),
@@ -90,11 +91,12 @@ export const ingredientsTable = pgTable(
   {
     id: text("id").primaryKey(),
     name: varchar("name", { length: 160 }).notNull(),
-    category: categoryEnum("category").notNull(),
+    category: varchar("category", { length: 160 }).notNull(),
     unit: varchar("unit", { length: 32 }).notNull(),
     stock: numeric("stock", { precision: 12, scale: 2 }).notNull().default("0"),
     minimumStock: numeric("minimum_stock", { precision: 12, scale: 2 }).notNull().default("0"),
     averagePrice: integer("average_price").notNull().default(0),
+    isBom: boolean("is_bom").notNull().default(false),
     active: boolean("active").notNull().default(true),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -102,6 +104,110 @@ export const ingredientsTable = pgTable(
   (table) => ({
     nameIdx: uniqueIndex("ingredients_name_idx").on(table.name),
     categoryIdx: index("ingredients_category_idx").on(table.category),
+  }),
+);
+
+export const bomRecipesTable = pgTable(
+  "bom_recipes",
+  {
+    id: text("id").primaryKey(),
+    finishedIngredientId: text("finished_ingredient_id")
+      .notNull()
+      .references(() => ingredientsTable.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 160 }).notNull(),
+    yieldQuantity: numeric("yield_quantity", { precision: 12, scale: 2 }).notNull(),
+    yieldUnit: varchar("yield_unit", { length: 32 }).notNull(),
+    totalCost: integer("total_cost").notNull().default(0),
+    active: boolean("active").notNull().default(true),
+    createdById: text("created_by_id").references(() => user.id, { onDelete: "set null" }),
+    createdByName: varchar("created_by_name", { length: 80 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    finishedIngredientIdx: uniqueIndex("bom_recipes_finished_ingredient_idx").on(table.finishedIngredientId),
+    nameIdx: uniqueIndex("bom_recipes_name_idx").on(table.name),
+  }),
+);
+
+export const bomRecipeItemsTable = pgTable(
+  "bom_recipe_items",
+  {
+    id: text("id").primaryKey(),
+    bomRecipeId: text("bom_recipe_id")
+      .notNull()
+      .references(() => bomRecipesTable.id, { onDelete: "cascade" }),
+    ingredientId: text("ingredient_id")
+      .notNull()
+      .references(() => ingredientsTable.id, { onDelete: "restrict" }),
+    quantity: numeric("quantity", { precision: 12, scale: 2 }).notNull(),
+    totalCost: integer("total_cost").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    recipeIngredientIdx: uniqueIndex("bom_recipe_items_recipe_ingredient_idx").on(table.bomRecipeId, table.ingredientId),
+  }),
+);
+
+export const bomProductionRunsTable = pgTable(
+  "bom_production_runs",
+  {
+    id: text("id").primaryKey(),
+    bomRecipeId: text("bom_recipe_id")
+      .notNull()
+      .references(() => bomRecipesTable.id, { onDelete: "cascade" }),
+    finishedIngredientId: text("finished_ingredient_id")
+      .notNull()
+      .references(() => ingredientsTable.id, { onDelete: "cascade" }),
+    batches: numeric("batches", { precision: 12, scale: 2 }).notNull().default("1"),
+    producedQuantity: numeric("produced_quantity", { precision: 12, scale: 2 }).notNull(),
+    totalCost: integer("total_cost").notNull().default(0),
+    productionDate: timestamp("production_date", { withTimezone: true }).notNull().defaultNow(),
+    operatorId: text("operator_id").references(() => user.id, { onDelete: "set null" }),
+    operatorName: varchar("operator_name", { length: 80 }).notNull(),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    recipeIdx: index("bom_production_runs_recipe_idx").on(table.bomRecipeId),
+    productionDateIdx: index("bom_production_runs_date_idx").on(table.productionDate),
+  }),
+);
+
+export const bomProductionRunItemsTable = pgTable(
+  "bom_production_run_items",
+  {
+    id: text("id").primaryKey(),
+    productionRunId: text("production_run_id")
+      .notNull()
+      .references(() => bomProductionRunsTable.id, { onDelete: "cascade" }),
+    ingredientId: text("ingredient_id")
+      .notNull()
+      .references(() => ingredientsTable.id, { onDelete: "restrict" }),
+    ingredientName: varchar("ingredient_name", { length: 160 }).notNull(),
+    ingredientUnit: varchar("ingredient_unit", { length: 32 }).notNull(),
+    consumedQuantity: numeric("consumed_quantity", { precision: 12, scale: 2 }).notNull(),
+    unitCost: integer("unit_cost").notNull().default(0),
+    totalCost: integer("total_cost").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    productionRunIdx: index("bom_production_run_items_run_idx").on(table.productionRunId),
+  }),
+);
+
+export const ingredientMasterOptionsTable = pgTable(
+  "ingredient_master_options",
+  {
+    id: text("id").primaryKey(),
+    type: varchar("type", { length: 24 }).notNull(),
+    value: varchar("value", { length: 160 }).notNull(),
+    active: boolean("active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    optionIdx: uniqueIndex("ingredient_master_options_type_value_idx").on(table.type, table.value),
   }),
 );
 
@@ -116,6 +222,7 @@ export const stockTransactionsTable = pgTable(
     quantity: numeric("quantity", { precision: 12, scale: 2 }).notNull(),
     unitPrice: integer("unit_price"),
     transactionDate: timestamp("transaction_date", { withTimezone: true }).notNull().defaultNow(),
+    clientRequestId: varchar("client_request_id", { length: 120 }),
     operatorId: text("operator_id").references(() => user.id, { onDelete: "set null" }),
     operatorName: varchar("operator_name", { length: 80 }).notNull(),
     note: text("note"),
@@ -124,6 +231,7 @@ export const stockTransactionsTable = pgTable(
   (table) => ({
     ingredientIdx: index("stock_transactions_ingredient_idx").on(table.ingredientId),
     dateIdx: index("stock_transactions_date_idx").on(table.transactionDate),
+    clientRequestIdx: uniqueIndex("stock_transactions_client_request_id_idx").on(table.clientRequestId),
   }),
 );
 
@@ -185,10 +293,147 @@ export const pricePredictionsTable = pgTable(
   }),
 );
 
+export const aiSourceSignalsTable = pgTable(
+  "ai_source_signals",
+  {
+    id: text("id").primaryKey(),
+    sourceType: varchar("source_type", { length: 24 }).notNull(),
+    sourceName: varchar("source_name", { length: 160 }).notNull(),
+    sourceUrl: text("source_url").notNull(),
+    headline: varchar("headline", { length: 280 }).notNull(),
+    summary: text("summary").notNull(),
+    commodityTags: text("commodity_tags").notNull().default(""),
+    signalScore: integer("signal_score").notNull().default(0),
+    publishedAt: timestamp("published_at", { withTimezone: true }).notNull(),
+    contentHash: varchar("content_hash", { length: 80 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    hashIdx: uniqueIndex("ai_source_signals_hash_idx").on(table.contentHash),
+    publishedAtIdx: index("ai_source_signals_published_at_idx").on(table.publishedAt),
+    sourceTypeIdx: index("ai_source_signals_source_type_idx").on(table.sourceType),
+  }),
+);
+
+export const aiMaterialRiskDailyTable = pgTable(
+  "ai_material_risk_daily",
+  {
+    id: text("id").primaryKey(),
+    ingredientId: text("ingredient_id").references(() => ingredientsTable.id, { onDelete: "set null" }),
+    itemName: varchar("item_name", { length: 160 }).notNull(),
+    signalDate: date("signal_date", { mode: "string" }).notNull(),
+    riskScore: integer("risk_score").notNull(),
+    risk: predictionRiskEnum("risk").notNull(),
+    trendPercent: numeric("trend_percent", { precision: 6, scale: 2 }).notNull().default("0"),
+    currentPrice: integer("current_price").notNull().default(0),
+    predictedPrice: integer("predicted_price").notNull().default(0),
+    sourceCount: integer("source_count").notNull().default(0),
+    reason: text("reason").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    dailyRiskIdx: uniqueIndex("ai_material_risk_daily_item_date_idx").on(table.itemName, table.signalDate),
+    signalDateIdx: index("ai_material_risk_daily_signal_date_idx").on(table.signalDate),
+    riskIdx: index("ai_material_risk_daily_risk_idx").on(table.risk),
+  }),
+);
+
+export const aiWeeklyStockProjectionsTable = pgTable(
+  "ai_weekly_stock_projections",
+  {
+    id: text("id").primaryKey(),
+    ingredientId: text("ingredient_id")
+      .notNull()
+      .references(() => ingredientsTable.id, { onDelete: "cascade" }),
+    weekStart: date("week_start", { mode: "string" }).notNull(),
+    weekEnd: date("week_end", { mode: "string" }).notNull(),
+    currentStock: numeric("current_stock", { precision: 12, scale: 2 }).notNull(),
+    predictedWeeklyUsage: numeric("predicted_weekly_usage", { precision: 12, scale: 2 }).notNull(),
+    predictedEndingStock: numeric("predicted_ending_stock", { precision: 12, scale: 2 }).notNull(),
+    stockCoverDays: numeric("stock_cover_days", { precision: 12, scale: 2 }).notNull(),
+    riskBoostPercent: numeric("risk_boost_percent", { precision: 6, scale: 2 }).notNull().default("0"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    weeklyProjectionUniqueIdx: uniqueIndex("ai_weekly_stock_projection_ingredient_week_idx").on(
+      table.ingredientId,
+      table.weekStart,
+    ),
+    weekStartIdx: index("ai_weekly_stock_projection_week_start_idx").on(table.weekStart),
+  }),
+);
+
+export const aiBuyRecommendationsTable = pgTable(
+  "ai_buy_recommendations",
+  {
+    id: text("id").primaryKey(),
+    ingredientId: text("ingredient_id")
+      .notNull()
+      .references(() => ingredientsTable.id, { onDelete: "cascade" }),
+    recommendationDate: date("recommendation_date", { mode: "string" }).notNull(),
+    action: aiRecommendationActionEnum("action").notNull(),
+    recommendedQuantity: numeric("recommended_quantity", { precision: 12, scale: 2 }).notNull(),
+    priorityScore: integer("priority_score").notNull(),
+    explanation: text("explanation").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    recommendationUniqueIdx: uniqueIndex("ai_buy_recommendations_ingredient_date_idx").on(
+      table.ingredientId,
+      table.recommendationDate,
+    ),
+    recommendationDateIdx: index("ai_buy_recommendations_date_idx").on(table.recommendationDate),
+    priorityIdx: index("ai_buy_recommendations_priority_idx").on(table.priorityScore),
+  }),
+);
+
+export const aiPipelineRunsTable = pgTable(
+  "ai_pipeline_runs",
+  {
+    id: text("id").primaryKey(),
+    runType: varchar("run_type", { length: 64 }).notNull(),
+    status: aiPipelineRunStatusEnum("status").notNull(),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    metricsJson: text("metrics_json").notNull().default("{}"),
+    errorMessage: text("error_message"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    runTypeIdx: index("ai_pipeline_runs_run_type_idx").on(table.runType),
+    startedAtIdx: index("ai_pipeline_runs_started_at_idx").on(table.startedAt),
+    statusIdx: index("ai_pipeline_runs_status_idx").on(table.status),
+  }),
+);
+
+export const aiBotLogsTable = pgTable(
+  "ai_bot_logs",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").references(() => user.id, { onDelete: "set null" }),
+    message: text("message").notNull(),
+    cleanMessage: text("clean_message").notNull(),
+    intent: varchar("intent", { length: 32 }).notNull(),
+    flow: varchar("flow", { length: 32 }).notNull(),
+    answer: text("answer").notNull(),
+    metadataJson: text("metadata_json").notNull().default("{}"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    createdAtIdx: index("ai_bot_logs_created_at_idx").on(table.createdAt),
+    flowIdx: index("ai_bot_logs_flow_idx").on(table.flow),
+    intentIdx: index("ai_bot_logs_intent_idx").on(table.intent),
+    userIdx: index("ai_bot_logs_user_idx").on(table.userId),
+  }),
+);
+
 export const ingredientsRelations = relations(ingredientsTable, ({ many }) => ({
   transactions: many(stockTransactionsTable),
   opnameDetails: many(stockOpnameDetailsTable),
   predictions: many(pricePredictionsTable),
+  bomRecipes: many(bomRecipeItemsTable),
+  finishedBomRecipes: many(bomRecipesTable),
+  bomProductionRuns: many(bomProductionRunsTable),
 }));
 
 export const transactionRelations = relations(stockTransactionsTable, ({ one }) => ({
@@ -202,14 +447,76 @@ export const transactionRelations = relations(stockTransactionsTable, ({ one }) 
   }),
 }));
 
+export const bomRecipesRelations = relations(bomRecipesTable, ({ one, many }) => ({
+  finishedIngredient: one(ingredientsTable, {
+    fields: [bomRecipesTable.finishedIngredientId],
+    references: [ingredientsTable.id],
+  }),
+  items: many(bomRecipeItemsTable),
+  productionRuns: many(bomProductionRunsTable),
+  createdBy: one(user, {
+    fields: [bomRecipesTable.createdById],
+    references: [user.id],
+  }),
+}));
+
+export const bomRecipeItemsRelations = relations(bomRecipeItemsTable, ({ one }) => ({
+  recipe: one(bomRecipesTable, {
+    fields: [bomRecipeItemsTable.bomRecipeId],
+    references: [bomRecipesTable.id],
+  }),
+  ingredient: one(ingredientsTable, {
+    fields: [bomRecipeItemsTable.ingredientId],
+    references: [ingredientsTable.id],
+  }),
+}));
+
+export const bomProductionRunsRelations = relations(bomProductionRunsTable, ({ one, many }) => ({
+  recipe: one(bomRecipesTable, {
+    fields: [bomProductionRunsTable.bomRecipeId],
+    references: [bomRecipesTable.id],
+  }),
+  finishedIngredient: one(ingredientsTable, {
+    fields: [bomProductionRunsTable.finishedIngredientId],
+    references: [ingredientsTable.id],
+  }),
+  operator: one(user, {
+    fields: [bomProductionRunsTable.operatorId],
+    references: [user.id],
+  }),
+  items: many(bomProductionRunItemsTable),
+}));
+
+export const bomProductionRunItemsRelations = relations(bomProductionRunItemsTable, ({ one }) => ({
+  productionRun: one(bomProductionRunsTable, {
+    fields: [bomProductionRunItemsTable.productionRunId],
+    references: [bomProductionRunsTable.id],
+  }),
+  ingredient: one(ingredientsTable, {
+    fields: [bomProductionRunItemsTable.ingredientId],
+    references: [ingredientsTable.id],
+  }),
+}));
+
 export const schema = {
   user,
   session,
   account,
   verification,
   ingredientsTable,
+  ingredientMasterOptionsTable,
+  bomRecipesTable,
+  bomRecipeItemsTable,
+  bomProductionRunsTable,
+  bomProductionRunItemsTable,
   stockTransactionsTable,
   stockOpnameTable,
   stockOpnameDetailsTable,
   pricePredictionsTable,
+  aiSourceSignalsTable,
+  aiMaterialRiskDailyTable,
+  aiWeeklyStockProjectionsTable,
+  aiBuyRecommendationsTable,
+  aiPipelineRunsTable,
+  aiBotLogsTable,
 };

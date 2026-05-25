@@ -1,23 +1,20 @@
 import {
-  BarChart3,
-  Bot,
+  ArrowDownToLine,
+  ArrowUpFromLine,
+  Boxes,
   ClipboardCheck,
-  FileText,
-  LayoutDashboard,
-  LogIn,
+  ClipboardList,
+  Gauge,
   LogOut,
-  Settings,
+  ScrollText,
+  Settings2,
   Store,
-  Warehouse,
+  TrendingUp,
 } from "lucide-react";
 
 export type Role = "Owner" | "Kasir" | "Cheef" | "Waiters";
 
-export type Category =
-  | "Protein & Daging"
-  | "Sayuran & Pelengkap"
-  | "Bumbu Basah & Rempah Segar"
-  | "Bahan Kering & Bumbu Kering";
+export type Category = string;
 
 export type Ingredient = {
   id: string;
@@ -27,6 +24,7 @@ export type Ingredient = {
   stock: number;
   minimum: number;
   price: number;
+  isBom?: boolean;
 };
 
 type SeedIngredient = Omit<Ingredient, "id" | "category">;
@@ -46,16 +44,16 @@ export const roleAccess: Record<Role, string[]> = {
 };
 
 export const navItems = [
-  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, group: "Operasional" },
-  { id: "stok", label: "Stok Bahan", icon: Warehouse, group: "Operasional", badge: "3" },
-  { id: "opname", label: "Stock Opname", icon: ClipboardCheck, group: "Operasional" },
-  { id: "stok-masuk", label: "Stok Masuk", icon: LogIn, group: "Input" },
-  { id: "stok-keluar", label: "Stok Keluar", icon: LogOut, group: "Input" },
-  { id: "ai", label: "Prediksi Harga", icon: Bot, group: "Analitik" },
-  { id: "laporan", label: "Laporan", icon: FileText, group: "Analitik" },
+  { id: "dashboard", label: "Dashboard", icon: Gauge, group: "Utama" },
+  { id: "stok", label: "Stock", icon: Boxes, group: "Utama", badge: "3" },
+  { id: "stok-masuk", label: "Stock Masuk", icon: ArrowDownToLine, group: "Transaksi" },
+  { id: "stok-keluar", label: "Stock Keluar", icon: ArrowUpFromLine, group: "Transaksi" },
+  { id: "opname", label: "Opname", icon: ClipboardCheck, group: "Transaksi" },
+  { id: "ai", label: "Prediksi Harga", icon: TrendingUp, group: "Analitik" },
+  { id: "laporan", label: "Laporan", icon: ScrollText, group: "Analitik" },
   { id: "supplier", label: "Supplier", icon: Store, group: "Data" },
-  { id: "bahan", label: "Master Bahan", icon: BarChart3, group: "Data" },
-  { id: "pengaturan", label: "Pengaturan", icon: Settings, group: "Sistem" },
+  { id: "bahan", label: "Master Bahan", icon: ClipboardList, group: "Data" },
+  { id: "pengaturan", label: "Pengaturan", icon: Settings2, group: "Pengaturan" },
 ] as const;
 
 export type PageId = (typeof navItems)[number]["id"];
@@ -231,6 +229,36 @@ export const aiInsights = [
 
 export const priceNews = [
   {
+    source: "PIHPS via BabelInsight",
+    date: "17 Mei 2026",
+    title: "Harga Pangan Strategis 17 Mei 2026 Bergerak Fluktuatif",
+    commodity: "Cabai, minyak goreng, daging ayam, bawang, beras",
+    signal: "Cabai naik kuat",
+    summary:
+      "PIHPS Bank Indonesia per 17 Mei 2026 mencatat cabai rawit merah Rp71.400/kg (+9,26%), cabai merah besar Rp55.200/kg (+5,34%), daging ayam Rp40.400/kg (+3,32%), dan minyak goreng kemasan I Rp24.250/kg (+1,89%).",
+    url: "https://www.babelinsight.id/harga-pangan-strategis-17-mei-2026",
+  },
+  {
+    source: "PIHPS via tvOne",
+    date: "17 Mei 2026",
+    title: "Lonjakan Harga Hantam Pasar Pangan Nasional, Cabai hingga Minyak Goreng Merangkak Naik",
+    commodity: "Cabai rawit merah, cabai merah besar, cabai merah keriting, minyak goreng",
+    signal: "Naik",
+    summary:
+      "PIHPS Nasional 17 Mei 2026 menunjukkan cabai rawit merah naik 9,26% menjadi Rp71.400/kg, cabai merah besar Rp55.200/kg, dan cabai merah keriting Rp50.450/kg.",
+    url: "https://www.tvonenews.com/berita/nasional/440795-lonjakan-harga-hantam-pasar-pangan-nasional-cabai-hingga-minyak-goreng-merangkak-naik",
+  },
+  {
+    source: "PIHPS via IDXChannel",
+    date: "17 Mei 2026",
+    title: "Mayoritas Bahan Pangan Turun Harga pada Minggu 17 Mei 2026",
+    commodity: "Bawang merah, bawang putih, beras",
+    signal: "Turun",
+    summary:
+      "PIHPS Nasional 17 Mei 2026 mencatat bawang merah turun 1,28% menjadi Rp46.200/kg, bawang putih turun 1,02% menjadi Rp38.750/kg, dan beberapa jenis beras ikut terkoreksi.",
+    url: "https://www.idxchannel.com/playlists/mayoritas-bahan-pangan-turun-harga-pada-minggu-17-mei-2026",
+  },
+  {
     source: "Liputan6",
     date: "7 Mei 2026",
     title: "Harga Pangan 7 Mei 2026: Cabai Rawit Merah Rp63.700, Telur Ayam Rp31.400",
@@ -293,10 +321,76 @@ export const priceNews = [
 ];
 
 export const priceForecast = [
-  { item: "Cabai rawit merah", current: 64850, next: 70500, change: "+8.7%", risk: "Tinggi", source: "Okezone, Liputan6" },
-  { item: "Bawang merah", current: 48300, next: 51500, change: "+6.6%", risk: "Tinggi", source: "Liputan6, Suara" },
-  { item: "Cabai merah keriting", current: 50300, next: 53800, change: "+7.0%", risk: "Sedang", source: "Liputan6" },
-  { item: "Minyak goreng", current: 20600, next: 21200, change: "+2.9%", risk: "Sedang", source: "Okezone" },
-  { item: "Daging ayam", current: 39100, next: 40500, change: "+3.6%", risk: "Sedang", source: "Okezone" },
-  { item: "Bawang putih", current: 39050, next: 39800, change: "+1.9%", risk: "Rendah", source: "Liputan6" },
+  {
+    item: "Cabai rawit merah",
+    current: 71400,
+    next: 78000,
+    change: "+9.26%",
+    risk: "Tinggi",
+    source: "PIHPS via BabelInsight, PIHPS via tvOne",
+    date: "2026-05-17",
+  },
+  {
+    item: "Cabai merah keriting",
+    current: 50450,
+    next: 50600,
+    change: "+0.30%",
+    risk: "Sedang",
+    source: "PIHPS via BabelInsight, PIHPS via tvOne",
+    date: "2026-05-17",
+  },
+  {
+    item: "Cabai merah besar",
+    current: 55200,
+    next: 58150,
+    change: "+5.34%",
+    risk: "Tinggi",
+    source: "PIHPS via BabelInsight, PIHPS via tvOne",
+    date: "2026-05-17",
+  },
+  {
+    item: "Daging ayam",
+    current: 40400,
+    next: 41750,
+    change: "+3.32%",
+    risk: "Sedang",
+    source: "PIHPS via BabelInsight",
+    date: "2026-05-17",
+  },
+  {
+    item: "Minyak goreng",
+    current: 24250,
+    next: 24700,
+    change: "+1.89%",
+    risk: "Sedang",
+    source: "PIHPS via BabelInsight",
+    date: "2026-05-17",
+  },
+  {
+    item: "Bawang merah",
+    current: 46200,
+    next: 45600,
+    change: "-1.28%",
+    risk: "Rendah",
+    source: "PIHPS via IDXChannel, PIHPS via BabelInsight",
+    date: "2026-05-17",
+  },
+  {
+    item: "Bawang putih",
+    current: 38750,
+    next: 38350,
+    change: "-1.02%",
+    risk: "Rendah",
+    source: "PIHPS via IDXChannel, PIHPS via BabelInsight",
+    date: "2026-05-17",
+  },
+  {
+    item: "Beras putih",
+    current: 14650,
+    next: 14750,
+    change: "+0.69%",
+    risk: "Rendah",
+    source: "PIHPS via BabelInsight",
+    date: "2026-05-17",
+  },
 ];

@@ -4,7 +4,8 @@ import { z } from "zod";
 import { db } from "@/db";
 import { stockOpnameDetailsTable, stockOpnameTable } from "@/db/schema";
 import { canWriteActual, getRole, requireSession } from "@/lib/api/authz";
-import { badRequest, created, forbidden, ok, serverError, unauthorized } from "@/lib/api/responses";
+import { created, forbidden, ok, serverError, unauthorized } from "@/lib/api/responses";
+import { guardMutation, parseJsonBody } from "@/lib/api/security";
 
 const opnameDetailSchema = z.object({
   ingredientId: z.string().min(1),
@@ -64,12 +65,17 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const guard = guardMutation(request, { limit: 20, windowMs: 60_000 });
+    if (guard) return guard;
+
     const session = await requireSession();
     if (!session) return unauthorized();
     const role = getRole(session);
     if (!canWriteActual(role)) return forbidden("This role cannot submit actual stock data");
 
-    const body = opnameSchema.parse(await request.json());
+    const { data: body, response } = await parseJsonBody(request, opnameSchema, 96_000);
+    if (response) return response;
+
     if (!isAllowedOpnameDay(new Date()) || !isAllowedOpnameDay(body.opnameDate)) {
       return forbidden(
         `Actual stock input is only allowed on day ${STOCK_OPNAME_ALLOWED_DAY} in ${STOCK_OPNAME_TIME_ZONE}`,
@@ -115,7 +121,6 @@ export async function POST(request: Request) {
 
     return created(result);
   } catch (error) {
-    if (error instanceof SyntaxError) return badRequest("Invalid JSON body");
     return serverError(error);
   }
 }

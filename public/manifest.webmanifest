@@ -1,10 +1,10 @@
 {
-  "name": "SotoStock",
-  "short_name": "SotoStock",
-  "description": "Manajemen stok Soto Seger JoyoBoyo",
+  "name": "STOKARA",
+  "short_name": "STOKARA",
+  "description": "Inventory management dengan single source of truth",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#F5F3EF",
-  "theme_color": "#FF6B35",
+  "background_color": "#F7F3EA",
+  "theme_color": "#B8962E",
   "icons": []
 }

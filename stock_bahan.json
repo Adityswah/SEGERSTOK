@@ -1,0 +1,558 @@
+[
+  {
+    "id": "Protein 2",
+    "nama": "Ayam Soto Besar",
+    "category": "Protein",
+    "unit": "Ekor",
+    " stock ": 0,
+    "minimum_stock": 2,
+    "avarage_price": 162000
+  },
+  {
+    "id": "Protein 3",
+    "nama": "Ayam Soto Kecil",
+    "category": "Protein",
+    "unit": "Ekor",
+    " stock ": 0,
+    "minimum_stock": 2,
+    "avarage_price": 72000
+  },
+  {
+    "id": "Gudang 17",
+    "nama": "Gula Merah",
+    "category": "Gudang",
+    "unit": "Kg",
+    " stock ": 0,
+    "minimum_stock": 2,
+    "avarage_price": 20000
+  },
+  {
+    "id": "Protein 1",
+    "nama": "Daging",
+    "category": "Protein",
+    "unit": "Kg",
+    " stock ": 0,
+    "minimum_stock": 2,
+    "avarage_price": 125000
+  },
+  {
+    "id": "Protein 4",
+    "nama": "Paru Sapi",
+    "category": "Protein",
+    "unit": "Kg",
+    " stock ": 0,
+    "minimum_stock": 2,
+    "avarage_price": 95000
+  },
+  {
+    "id": "Protein 5",
+    "nama": "Rempela Ati",
+    "category": "Protein",
+    "unit": "Kg",
+    " stock ": 0,
+    "minimum_stock": 2,
+    "avarage_price": 25000
+  },
+  {
+    "id": "Protein 6",
+    "nama": "Kulit",
+    "category": "Protein",
+    "unit": "Kg",
+    " stock ": 0,
+    "minimum_stock": 2,
+    "avarage_price": 33000
+  },
+  {
+    "id": "Protein 7",
+    "nama": "Sayap",
+    "category": "Protein",
+    "unit": "Kg",
+    " stock ": 0,
+    "minimum_stock": 2,
+    "avarage_price": 33000
+  },
+  {
+    "id": "Protein 8",
+    "nama": "Telor Ayam",
+    "category": "Protein",
+    "unit": "Kg",
+    " stock ": 0,
+    "minimum_stock": 2,
+    "avarage_price": 35000
+  },
+  {
+    "id": "Protein 9",
+    "nama": "Telur Puyuh",
+    "category": "Protein",
+    "unit": "Kg",
+    " stock ": 0,
+    "minimum_stock": 2,
+    "avarage_price": 36000
+  },
+  {
+    "id": "Protein 10",
+    "nama": "Ayam Potong Dada",
+    "category": "Protein",
+    "unit": "Kg",
+    " stock ": 0,
+    "minimum_stock": 2,
+    "avarage_price": 35000
+  },
+  {
+    "id": "Protein 11",
+    "nama": "Ayam Potong Paha",
+    "category": "Protein",
+    "unit": "Kg",
+    " stock ": 0,
+    "minimum_stock": 2,
+    "avarage_price": 35000
+  },
+  {
+    "id": "Rempah - Rempah 1",
+    "nama": "Jahe",
+    "category": "Rempah - Rempah",
+    "unit": "Kg",
+    " stock ": 0,
+    "minimum_stock": 2,
+    "avarage_price": 18000
+  },
+  {
+    "id": "Rempah - Rempah 2",
+    "nama": "Daun Jeruk",
+    "category": "Rempah - Rempah",
+    "unit": "Kg",
+    " stock ": 0,
+    "minimum_stock": 0.25,
+    "avarage_price": 25000
+  },
+  {
+    "id": "Rempah - Rempah 3",
+    "nama": "Daun Salam",
+    "category": "Rempah - Rempah",
+    "unit": "Kg",
+    " stock ": 0,
+    "minimum_stock": 0.25,
+    "avarage_price": 25000
+  },
+  {
+    "id": "Rempah - Rempah 4",
+    "nama": "Laos",
+    "category": "Rempah - Rempah",
+    "unit": "Kg",
+    " stock ": 0,
+    "minimum_stock": 2,
+    "avarage_price": 13000
+  },
+  {
+    "id": "Rempah - Rempah 5",
+    "nama": "Merica",
+    "category": "Rempah - Rempah",
+    "unit": "Kg",
+    " stock ": 0,
+    "minimum_stock": 2,
+    "avarage_price": 165000
+  },
+  {
+    "id": "Rempah - Rempah 6",
+    "nama": "Ketumbah",
+    "category": "Rempah - Rempah",
+    "unit": "Kg",
+    " stock ": 0,
+    "minimum_stock": 2,
+    "avarage_price": 80000
+  },
+  {
+    "id": "Rempah - Rempah 7",
+    "nama": "Sereh",
+    "category": "Rempah - Rempah",
+    "unit": "Kg",
+    " stock ": 0,
+    "minimum_stock": 2,
+    "avarage_price": 6000
+  },
+  {
+    "id": "Rempah - Rempah 8",
+    "nama": "Kemiri",
+    "category": "Rempah - Rempah",
+    "unit": "Kg",
+    " stock ": 0,
+    "minimum_stock": 2,
+    "avarage_price": 45000
+  },
+  {
+    "id": "Rempah - Rempah 9",
+    "nama": "Bawang Putih Kupas",
+    "category": "Rempah - Rempah",
+    "unit": "Kg",
+    " stock ": 0,
+    "minimum_stock": 2,
+    "avarage_price": 35000
+  },
+  {
+    "id": "Rempah - Rempah 10",
+    "nama": "Bawang Putih Kating",
+    "category": "Rempah - Rempah",
+    "unit": "Kg",
+    " stock ": 0,
+    "minimum_stock": 2,
+    "avarage_price": 30000
+  },
+  {
+    "id": "Rempah - Rempah 11",
+    "nama": "Bawang Merah",
+    "category": "Rempah - Rempah",
+    "unit": "Kg",
+    " stock ": 0,
+    "minimum_stock": 2,
+    "avarage_price": 32000
+  },
+  {
+    "id": "Rempah - Rempah 12",
+    "nama": "Bawang Merah Kupas",
+    "category": "Rempah - Rempah",
+    "unit": "Kg",
+    " stock ": 0,
+    "minimum_stock": 2,
+    "avarage_price": 38000
+  },
+  {
+    "id": "Rempah - Rempah 13",
+    "nama": "Kunci",
+    "category": "Rempah - Rempah",
+    "unit": "Kg",
+    " stock ": 0,
+    "minimum_stock": 2,
+    "avarage_price": 13000
+  },
+  {
+    "id": "Rempah - Rempah 14",
+    "nama": "Kayu Manis",
+    "category": "Rempah - Rempah",
+    "unit": "Kg",
+    " stock ": 0,
+    "minimum_stock": 2,
+    "avarage_price": 135000
+  },
+  {
+    "id": "Rempah - Rempah 15",
+    "nama": "Cengkeh",
+    "category": "Rempah - Rempah",
+    "unit": "Kg",
+    " stock ": 0,
+    "minimum_stock": 2,
+    "avarage_price": 145000
+  },
+  {
+    "id": "Rempah - Rempah 16",
+    "nama": "Bunga Lawang",
+    "category": "Rempah - Rempah",
+    "unit": "Kg",
+    " stock ": 0,
+    "minimum_stock": 2,
+    "avarage_price": 145000
+  },
+  {
+    "id": "Sayur 1",
+    "nama": "Gubis",
+    "category": "Sayur",
+    "unit": "Kg",
+    " stock ": 0,
+    "minimum_stock": 2,
+    "avarage_price": 7000
+  },
+  {
+    "id": "Sayur 2",
+    "nama": "Wortel",
+    "category": "Sayur",
+    "unit": "Kg",
+    " stock ": 0,
+    "minimum_stock": 2,
+    "avarage_price": 11000
+  },
+  {
+    "id": "Sayur 3",
+    "nama": "Sawi Putih",
+    "category": "Sayur",
+    "unit": "Kg",
+    " stock ": 0,
+    "minimum_stock": 2,
+    "avarage_price": 11000
+  },
+  {
+    "id": "Sayur 4",
+    "nama": "Daun Pre",
+    "category": "Sayur",
+    "unit": "Kg",
+    " stock ": 0,
+    "minimum_stock": 2,
+    "avarage_price": 12000
+  },
+  {
+    "id": "Sayur 5",
+    "nama": "Sledri",
+    "category": "Sayur",
+    "unit": "Kg",
+    " stock ": 0,
+    "minimum_stock": 2,
+    "avarage_price": 15000
+  },
+  {
+    "id": "Sayur 6",
+    "nama": "Tomat",
+    "category": "Sayur",
+    "unit": "Kg",
+    " stock ": 0,
+    "minimum_stock": 2,
+    "avarage_price": 15000
+  },
+  {
+    "id": "Sayur 7",
+    "nama": "Jagung",
+    "category": "Sayur",
+    "unit": "Kg",
+    " stock ": 0,
+    "minimum_stock": 2,
+    "avarage_price": 8000
+  },
+  {
+    "id": "Sayur 8",
+    "nama": "Kentang",
+    "category": "Sayur",
+    "unit": "Kg",
+    " stock ": 0,
+    "minimum_stock": 2,
+    "avarage_price": 14500
+  },
+  {
+    "id": "Sayur 9",
+    "nama": "Timun",
+    "category": "Sayur",
+    "unit": "Kg",
+    " stock ": 0,
+    "minimum_stock": 2,
+    "avarage_price": 10000
+  },
+  {
+    "id": "Sayur 12",
+    "nama": "Cambah",
+    "category": "Sayur",
+    "unit": "Kg",
+    " stock ": 0,
+    "minimum_stock": 2,
+    "avarage_price": 12000
+  },
+  {
+    "id": "Sayur 14",
+    "nama": "Jeruk Nipis Kuning",
+    "category": "Sayur",
+    "unit": "Kg",
+    " stock ": 0,
+    "minimum_stock": 2,
+    "avarage_price": 14000
+  },
+  {
+    "id": "Sayur 15",
+    "nama": "Jeruk Nipis Hijau",
+    "category": "Sayur",
+    "unit": "Kg",
+    " stock ": 0,
+    "minimum_stock": 2,
+    "avarage_price": 15000
+  },
+  {
+    "id": "Sayur 16",
+    "nama": "Jeruk Peras",
+    "category": "Sayur",
+    "unit": "Kg",
+    " stock ": 0,
+    "minimum_stock": 2,
+    "avarage_price": 11000
+  },
+  {
+    "id": "Gudang 1",
+    "nama": "Kecap Manis Sawi 450ml",
+    "category": "Gudang",
+    "unit": "Pcs",
+    " stock ": 0,
+    "minimum_stock": 6
+  },
+  {
+    "id": "Gudang 2",
+    "nama": "Soun 500g",
+    "category": "Gudang",
+    "unit": "Pcs",
+    " stock ": 0,
+    "minimum_stock": 4
+  },
+  {
+    "id": "Gudang 3",
+    "nama": "Tepung Terigu 1kg",
+    "category": "Gudang",
+    "unit": "Pcs",
+    " stock ": 0,
+    "minimum_stock": 5
+  },
+  {
+    "id": "Gudang 4",
+    "nama": "Tepung Terigu 5kg",
+    "category": "Gudang",
+    "unit": "Pcs",
+    " stock ": 0,
+    "minimum_stock": 5
+  },
+  {
+    "id": "Gudang 5",
+    "nama": "Tepung Beras 500g",
+    "category": "Gudang",
+    "unit": "Pcs",
+    " stock ": 0,
+    "minimum_stock": 5
+  },
+  {
+    "id": "Gudang 6",
+    "nama": "Tepung Tapioka 500g",
+    "category": "Gudang",
+    "unit": "Pcs",
+    " stock ": 0,
+    "minimum_stock": 5
+  },
+  {
+    "id": "Gudang 7",
+    "nama": "Tepung Ketan 500g",
+    "category": "Gudang",
+    "unit": "Pcs",
+    " stock ": 0,
+    "minimum_stock": 5
+  },
+  {
+    "id": "Gudang 8",
+    "nama": "Gula Pasir 1kg",
+    "category": "Gudang",
+    "unit": "Pcs",
+    " stock ": 0,
+    "minimum_stock": 2
+  },
+  {
+    "id": "Gudang 9",
+    "nama": "Kecap Manis Indofood 450ml",
+    "category": "Gudang",
+    "unit": "Pcs",
+    " stock ": 0,
+    "minimum_stock": 4
+  },
+  {
+    "id": "Gudang 10",
+    "nama": "Beras 5kg",
+    "category": "Gudang",
+    "unit": "Pcs",
+    " stock ": 0,
+    "minimum_stock": 2
+  },
+  {
+    "id": "Gudang 11",
+    "nama": "Minyak 1L",
+    "category": "Gudang",
+    "unit": "Pcs",
+    " stock ": 0,
+    "minimum_stock": 4
+  },
+  {
+    "id": "Gudang 12",
+    "nama": "Minnyak 2L",
+    "category": "Gudang",
+    "unit": "Pcs",
+    " stock ": 0,
+    "minimum_stock": 2
+  },
+  {
+    "id": "Gudang 13",
+    "nama": "Garam 500g",
+    "category": "Gudang",
+    "unit": "Pcs",
+    " stock ": 0,
+    "minimum_stock": 5
+  },
+  {
+    "id": "Gudang 14",
+    "nama": "Micin Sasa 1kg",
+    "category": "Gudang",
+    "unit": "Pcs",
+    " stock ": 0,
+    "minimum_stock": 2
+  },
+  {
+    "id": "Gudang 15",
+    "nama": "Masako Ayam 1kg",
+    "category": "Gudang",
+    "unit": "Pcs",
+    " stock ": 0,
+    "minimum_stock": 2
+  },
+  {
+    "id": "Gudang 16",
+    "nama": "Santan Sasa 60ml",
+    "category": "Gudang",
+    "unit": "Pcs",
+    " stock ": 0,
+    "minimum_stock": 4
+  },
+  {
+    "id": "Gudang 18",
+    "nama": "Teh Tubruk ",
+    "category": "Gudang ",
+    "unit": "Pcs",
+    " stock ": 0,
+    "minimum_stock": 10
+  },
+  {
+    "id": "Minuman 1",
+    "nama": "Air Mineral 600ml",
+    "category": "Minuman",
+    "unit": "Pcs",
+    " stock ": 0,
+    "minimum_stock": 24
+  },
+  {
+    "id": "Minuman 2",
+    "nama": "Sosro Kaca",
+    "category": "Minuman",
+    "unit": "Pcs",
+    " stock ": 0,
+    "minimum_stock": 24
+  },
+  {
+    "id": "Protein 12",
+    "nama": "Tulang Skengkel Kaldu",
+    "category": "Protein",
+    "unit": "Pcs",
+    " stock ": 0,
+    "minimum_stock": 3
+  },
+  {
+    "id": "Sayur 10",
+    "nama": "Tempe Besar",
+    "category": "Sayur",
+    "unit": "Pcs",
+    " stock ": 0,
+    "minimum_stock": 1,
+    "avarage_price": 20000
+  },
+  {
+    "id": "Sayur 11",
+    "nama": "Tahu",
+    "category": "Sayur",
+    "unit": "Pcs",
+    " stock ": 0,
+    "minimum_stock": 4,
+    "avarage_price": 4000
+  },
+  {
+    "id": "Sayur 13",
+    "nama": "Tempe Mendoan",
+    "category": "Sayur",
+    "unit": "Pcs",
+    " stock ": 0,
+    "minimum_stock": 5,
+    "avarage_price": 12000
+  }
+]

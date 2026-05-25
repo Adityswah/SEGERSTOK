@@ -1,10 +1,11 @@
-import { desc } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { db } from "@/db";
-import { pricePredictionsTable } from "@/db/schema";
+import { aiMaterialRiskDailyTable, pricePredictionsTable } from "@/db/schema";
 import { getRole, requireSession } from "@/lib/api/authz";
-import { badRequest, created, forbidden, ok, serverError, unauthorized } from "@/lib/api/responses";
+import { created, forbidden, ok, serverError, unauthorized } from "@/lib/api/responses";
+import { guardMutation, parseJsonBody } from "@/lib/api/security";
 
 const predictionSchema = z.object({
   ingredientId: z.string().min(1).optional(),
@@ -19,17 +20,66 @@ const predictionSchema = z.object({
   publishedAt: z.coerce.date().optional(),
 });
 
-export async function GET() {
+type AiMaterialRiskDailyRow = typeof aiMaterialRiskDailyTable.$inferSelect;
+
+function aiSummaryUrl(requestUrl: string) {
+  return new URL("/api/ai/summary", requestUrl).toString();
+}
+
+function mapAiRiskToPrediction(row: AiMaterialRiskDailyRow, requestUrl: string) {
+  return {
+    id: row.id,
+    ingredientId: row.ingredientId,
+    itemName: row.itemName,
+    currentPrice: row.currentPrice,
+    predictedPrice: row.predictedPrice,
+    changePercent: row.trendPercent,
+    risk: row.risk,
+    sourceName: `AI Material Risk Daily (${row.signalDate})`,
+    sourceUrl: aiSummaryUrl(requestUrl),
+    summary: row.reason,
+    publishedAt: row.createdAt,
+    signalDate: row.signalDate,
+    riskScore: row.riskScore,
+    sourceCount: row.sourceCount,
+  };
+}
+
+async function getLatestAiPredictions(requestUrl: string) {
+  const [latestAiRow] = await db
+    .select({ signalDate: aiMaterialRiskDailyTable.signalDate })
+    .from(aiMaterialRiskDailyTable)
+    .orderBy(desc(aiMaterialRiskDailyTable.signalDate), desc(aiMaterialRiskDailyTable.createdAt))
+    .limit(1);
+
+  if (!latestAiRow) return [];
+
+  const rows = await db
+    .select()
+    .from(aiMaterialRiskDailyTable)
+    .where(eq(aiMaterialRiskDailyTable.signalDate, latestAiRow.signalDate))
+    .orderBy(desc(aiMaterialRiskDailyTable.riskScore), desc(aiMaterialRiskDailyTable.createdAt))
+    .limit(50);
+
+  return rows.map((row) => mapAiRiskToPrediction(row, requestUrl));
+}
+
+async function getLegacyPredictions() {
+  return db
+    .select()
+    .from(pricePredictionsTable)
+    .orderBy(desc(pricePredictionsTable.createdAt))
+    .limit(50);
+}
+
+export async function GET(request: Request) {
   try {
     const session = await requireSession();
     if (!session) return unauthorized();
     if (getRole(session) !== "Owner") return forbidden("Only Owner can read price predictions");
 
-    const rows = await db
-      .select()
-      .from(pricePredictionsTable)
-      .orderBy(desc(pricePredictionsTable.createdAt))
-      .limit(50);
+    const aiRows = await getLatestAiPredictions(request.url);
+    const rows = aiRows.length > 0 ? aiRows : await getLegacyPredictions();
 
     return ok(rows);
   } catch (error) {
@@ -39,11 +89,16 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const guard = guardMutation(request, { limit: 15, windowMs: 60_000 });
+    if (guard) return guard;
+
     const session = await requireSession();
     if (!session) return unauthorized();
     if (getRole(session) !== "Owner") return forbidden("Only Owner can create price predictions");
 
-    const body = predictionSchema.parse(await request.json());
+    const { data: body, response } = await parseJsonBody(request, predictionSchema);
+    if (response) return response;
+
     const [row] = await db
       .insert(pricePredictionsTable)
       .values({
@@ -63,7 +118,6 @@ export async function POST(request: Request) {
 
     return created(row);
   } catch (error) {
-    if (error instanceof SyntaxError) return badRequest("Invalid JSON body");
     return serverError(error);
   }
 }

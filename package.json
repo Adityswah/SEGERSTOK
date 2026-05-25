@@ -15,7 +15,8 @@
     "db:supabase:seed": "tsx db/seed.ts",
     "db:studio": "npx --yes --loglevel=error drizzle-kit@0.31.10 studio",
     "db:studio:local": "npx --yes --loglevel=error drizzle-kit@0.31.10 studio --port 4983",
-    "docker:postgres": "docker compose up -d postgres"
+    "docker:postgres": "docker compose up -d postgres",
+    "cron-job:connect": "node scripts/connect-cron-job-org.mjs"
   },
   "dependencies": {
     "@better-auth/drizzle-adapter": "^1.6.9",
@@ -25,6 +26,9 @@
     "clsx": "^2.1.1",
     "dotenv": "^17.4.2",
     "drizzle-orm": "^0.45.2",
+    "exceljs": "^4.4.0",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.8",
     "lucide-react": "^0.468.0",
     "next": "^15.3.3",
     "postgres": "^3.4.9",

@@ -30,6 +30,11 @@ function parseChangePercent(change: string) {
   return Number(change.replace("%", "").replace("+", ""));
 }
 
+function predictionDate(date?: string) {
+  if (!date) return new Date("2026-05-17T00:00:00+07:00");
+  return new Date(`${date}T00:00:00+07:00`);
+}
+
 function findPredictionSource(itemName: string, sourceName: string) {
   const sourceCandidates = sourceName.split(",").map((source) => source.trim());
   return (
@@ -96,12 +101,13 @@ async function seedPricePredictions() {
         sourceName: item.source,
         sourceUrl: source.url,
         summary: source.summary,
-        publishedAt: new Date("2026-05-07T00:00:00+07:00"),
+        publishedAt: predictionDate(item.date),
       })
       .onConflictDoUpdate({
         target: pricePredictionsTable.id,
         set: {
           ingredientId: ingredientIdByName.get(item.item.toLowerCase()),
+          itemName: item.item,
           currentPrice: item.current,
           predictedPrice: item.next,
           changePercent: String(parseChangePercent(item.change)),
@@ -109,6 +115,7 @@ async function seedPricePredictions() {
           sourceName: item.source,
           sourceUrl: source.url,
           summary: source.summary,
+          publishedAt: predictionDate(item.date),
         },
       });
   }

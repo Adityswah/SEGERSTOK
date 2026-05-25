@@ -8,6 +8,41 @@
       "when": 1778268911914,
       "tag": "0000_volatile_bromley",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1778554980000,
+      "tag": "0001_ai_pipeline_layer",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1778641380000,
+      "tag": "0002_master_options_and_open_category",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1778727780000,
+      "tag": "0003_transaction_idempotency",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1779580800000,
+      "tag": "0004_ai_bot_logs",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1780009200000,
+      "tag": "0005_bom_recipes",
+      "breakpoints": true
     }
   ]
 }
