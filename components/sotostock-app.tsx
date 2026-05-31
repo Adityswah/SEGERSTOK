@@ -1258,6 +1258,7 @@ export function SotoStockApp() {
               <SettingsPage
                 categories={allCategories}
                 email={user?.email ?? ""}
+                financeTransactions={financeTransactions}
                 inventory={inventory}
                 name={user?.name ?? ""}
                 onSaved={loadData}
@@ -3292,10 +3293,10 @@ function StockInputPage({
                 Jumlah Produksi
                 <Input
                   disabled={submittingBom}
-                  min="0.01"
+                  min="0.001"
                   onChange={(event) => setBomProductionCount(event.target.value)}
-                  placeholder="Contoh: 5"
-                  step="0.01"
+                  placeholder="Contoh: 5 atau 0.001"
+                  step="0.001"
                   type="number"
                   value={bomProductionCount}
                 />
@@ -3405,11 +3406,11 @@ function StockInputPage({
                           <span className="sr-only">Jumlah</span>
                           <Input
                             disabled={submitting}
-                            min="0"
+                            min="0.001"
                             name="amount"
                             onChange={(event) => updateRow(row.key, { amount: event.target.value })}
                             placeholder={selected ? `0 ${selected.unit}` : "0"}
-                            step="0.1"
+                            step="0.001"
                             type="number"
                             value={row.amount}
                           />
@@ -3553,7 +3554,7 @@ function OpnamePage({
         .map((item) => {
           const values = inputRoles.map((inputRole) => Number(actualInputs[item.id]?.[inputRole] || 0)).filter(Boolean);
           const total = values.length ? values.reduce((sum, value) => sum + value, 0) : item.stock;
-          const gap = Number((item.stock - total).toFixed(2));
+          const gap = Number((item.stock - total).toFixed(3));
           return {
             item,
             gap,
@@ -3845,7 +3846,7 @@ function OpnamePage({
                           min="0"
                           onChange={(event) => onActualChange(item.id, "Owner", event.target.value)}
                           placeholder={`0 ${item.unit}`}
-                          step="0.1"
+                          step="0.001"
                           type="number"
                           value={actualInputs[item.id]?.Owner ?? ""}
                         />
@@ -4111,7 +4112,7 @@ function OpnamePage({
                           min="0"
                           onChange={(event) => onActualChange(item.id, inputRole, event.target.value)}
                           placeholder={`0 ${item.unit}`}
-                          step="0.1"
+                          step="0.001"
                           type="number"
                           value={actualInputs[item.id]?.[inputRole] ?? ""}
                         />
@@ -4165,7 +4166,7 @@ function OpnamePage({
                             min="0"
                             onChange={(event) => onActualChange(item.id, inputRole, event.target.value)}
                             placeholder={`0 ${item.unit}`}
-                            step="0.1"
+                            step="0.001"
                             type="number"
                             value={actualInputs[item.id]?.[inputRole] ?? ""}
                           />
@@ -4306,12 +4307,12 @@ function StockCorrectionPage({ inventory, onSaved }: { inventory: Ingredient[]; 
                     </div>
                     <label className="grid gap-2 text-sm font-semibold">
                       Stock aktual
-                      <Input min="0" onChange={(event) => updateRow(row.key, { actualStock: event.target.value })} placeholder="0" type="number" value={row.actualStock} />
+                      <Input min="0.001" onChange={(event) => updateRow(row.key, { actualStock: event.target.value })} placeholder="0.001" step="0.001" type="number" value={row.actualStock} />
                     </label>
                     <div className="rounded-md border bg-card p-3">
                       <p className="text-xs font-semibold uppercase text-muted-foreground">Selisih</p>
                       <p className={cn("mt-2 font-mono text-lg font-medium", delta < 0 ? "text-destructive" : "text-success")}>
-                        {selectedIngredient && row.actualStock ? `${delta.toFixed(2)} ${selectedIngredient.unit}` : "-"}
+                        {selectedIngredient && row.actualStock ? `${delta.toFixed(3)} ${selectedIngredient.unit}` : "-"}
                       </p>
                     </div>
                   </div>
@@ -5708,7 +5709,7 @@ function MasterDataPage({ inventory, categories }: { inventory: Ingredient[]; ca
   );
 }
 
-type SettingsPanel = "unit" | "category" | "product" | "finance_non_stock_subcategory" | "employees" | "bom";
+type SettingsPanel = "unit" | "category" | "product" | "finance_non_stock_subcategory" | "finance_transactions" | "employees" | "bom";
 type ProductDraft = {
   name: string;
   category: string;
@@ -5778,6 +5779,7 @@ function SettingsPage({
   role,
   name,
   email,
+  financeTransactions,
   inventory,
   categories,
   onSaved,
@@ -5785,6 +5787,7 @@ function SettingsPage({
   role: Role;
   name: string;
   email: string;
+  financeTransactions: FinanceTransactionRow[];
   inventory: Ingredient[];
   categories: Category[];
   onSaved: () => Promise<void>;
@@ -5804,6 +5807,9 @@ function SettingsPage({
   ]);
   const [employees, setEmployees] = useState<EmployeeRow[]>([]);
   const [resettingEmployeeId, setResettingEmployeeId] = useState<string | null>(null);
+  const [updatingRoleEmployeeId, setUpdatingRoleEmployeeId] = useState<string | null>(null);
+  const [savingFinanceId, setSavingFinanceId] = useState<string | null>(null);
+  const [financeEditRows, setFinanceEditRows] = useState<Record<string, { fundMethod: FinanceFundMethod; itemName: string; note: string; quantity: string; transactionDate: string; unitPrice: string }>>({});
   const [temporaryPassword, setTemporaryPassword] = useState<{ employeeName: string; password: string } | null>(null);
   const [bomDraft, setBomDraft] = useState<BomDraft>(emptyBomDraft);
   const [bomRecipes, setBomRecipes] = useState<BomRecipeRow[]>([]);
@@ -5818,6 +5824,24 @@ function SettingsPage({
   useEffect(() => {
     if (role !== "Owner") setActivePanel("bom");
   }, [role]);
+
+  useEffect(() => {
+    setFinanceEditRows((current) => {
+      const next = { ...current };
+      for (const item of financeTransactions.slice(0, 30)) {
+        if (next[item.id]) continue;
+        next[item.id] = {
+          fundMethod: item.fundMethod,
+          itemName: item.itemName,
+          note: item.note ?? "",
+          quantity: String(Number(item.quantity)),
+          transactionDate: new Date(item.transactionDate).toISOString().slice(0, 10),
+          unitPrice: String(item.unitPrice),
+        };
+      }
+      return next;
+    });
+  }, [financeTransactions]);
 
   useEffect(() => {
     const nextUnits = Array.from(new Set(inventory.map((item) => item.unit))).sort();
@@ -5900,6 +5924,7 @@ function SettingsPage({
     unit: units,
     category: categoryDrafts,
     finance_non_stock_subcategory: financeNonStockSubcategories,
+    finance_transactions: financeTransactions.map((item) => item.itemName),
     product: products,
     employees: employees.map((item) => item.name),
     bom: bomRecipes.map((item) => item.name),
@@ -5918,8 +5943,12 @@ function SettingsPage({
       placeholder: "Contoh: Cabai hijau besar",
     },
     finance_non_stock_subcategory: {
-      title: "Subkategori Finance Non-Stock",
-      placeholder: "Contoh: Listrik/Air/Gas",
+      title: "Kategori Finance Non-Stock",
+      placeholder: "Contoh: Prive, Operasional, Maintenance",
+    },
+    finance_transactions: {
+      title: "Edit Data Finance",
+      placeholder: "Edit transaksi finance terbaru",
     },
     employees: {
       title: "Kelola Karyawan",
@@ -6137,6 +6166,70 @@ function SettingsPage({
     }
   }
 
+  async function updateEmployeeRole(employee: EmployeeRow, nextRole: Exclude<Role, "Owner">) {
+    if (employee.role === nextRole) return;
+    setSettingsMessage("");
+    setUpdatingRoleEmployeeId(employee.id);
+    try {
+      const result = await apiJson<{ employee: EmployeeRow }>("/api/employees", {
+        method: "POST",
+        body: JSON.stringify({ action: "update-role", userId: employee.id, role: nextRole }),
+      });
+      setEmployees((current) => current.map((item) => (item.id === employee.id ? result.employee : item)));
+      setSettingsMessage(`Akses ${employee.name} diubah menjadi ${nextRole}. Session lama akun tersebut sudah dicabut.`);
+    } catch (error) {
+      setSettingsMessage(error instanceof Error ? error.message : "Role karyawan gagal diperbarui");
+    } finally {
+      setUpdatingRoleEmployeeId(null);
+    }
+  }
+
+  function updateFinanceEditRow(id: string, patch: Partial<{ fundMethod: FinanceFundMethod; itemName: string; note: string; quantity: string; transactionDate: string; unitPrice: string }>) {
+    const fallback = {
+      fundMethod: "cash" as FinanceFundMethod,
+      itemName: "",
+      note: "",
+      quantity: "1",
+      transactionDate: new Date().toISOString().slice(0, 10),
+      unitPrice: "",
+    };
+    setFinanceEditRows((current) => ({
+      ...current,
+      [id]: {
+        ...fallback,
+        ...current[id],
+        ...patch,
+      },
+    }));
+  }
+
+  async function saveFinanceEdit(item: FinanceTransactionRow) {
+    const draft = financeEditRows[item.id];
+    if (!draft) return;
+    setSettingsMessage("");
+    setSavingFinanceId(item.id);
+    try {
+      await apiJson<FinanceTransactionRow>("/api/finance/transactions", {
+        method: "PATCH",
+        body: JSON.stringify({
+          id: item.id,
+          fundMethod: draft.fundMethod,
+          itemName: draft.itemName,
+          note: draft.note || undefined,
+          quantity: Number(draft.quantity),
+          transactionDate: combineDateWithCurrentTime(draft.transactionDate).toISOString(),
+          unitPrice: Math.round(Number(String(draft.unitPrice).replace(/[^\d.-]/g, ""))),
+        }),
+      });
+      await onSaved();
+      setSettingsMessage(`Data finance ${item.itemName} berhasil diperbarui.`);
+    } catch (error) {
+      setSettingsMessage(error instanceof Error ? error.message : "Data finance gagal diperbarui");
+    } finally {
+      setSavingFinanceId(null);
+    }
+  }
+
   async function copyTemporaryPassword() {
     if (!temporaryPassword) return;
     await navigator.clipboard.writeText(temporaryPassword.password);
@@ -6274,22 +6367,31 @@ function SettingsPage({
     setSettingsMessage(`Mode edit BOM: ${recipe.name}`);
   }
 
-  const settingCardsBase: Array<{ id: SettingsPanel; title: string; count: number; icon: typeof Ruler }> = [
-    { id: "unit", title: "Satuan ukuran", count: units.length, icon: Ruler },
-    { id: "category", title: "Kategori produk", count: categoryDrafts.length, icon: Tags },
-    { id: "product", title: "Product", count: products.length, icon: Package },
+  const settingCardsBase: Array<{ group: "Master Data Stock" | "Master Data Finance" | "Account" | "Operasional"; id: SettingsPanel; title: string; count: number; icon: typeof Ruler }> = [
+    { group: "Master Data Stock", id: "unit", title: "Satuan stock", count: units.length, icon: Ruler },
+    { group: "Master Data Stock", id: "category", title: "Kategori stock", count: categoryDrafts.length, icon: Tags },
+    { group: "Master Data Stock", id: "product", title: "Barang stock", count: products.length, icon: Package },
     {
+      group: "Master Data Finance",
       id: "finance_non_stock_subcategory",
-      title: "Subkategori finance",
+      title: "Kategori finance",
       count: financeNonStockSubcategories.length,
       icon: Wallet,
     },
-    { id: "employees", title: "Kelola karyawan", count: employees.length, icon: Users },
-    { id: "bom", title: "BOM", count: bomRecipes.length, icon: Database },
+    {
+      group: "Master Data Finance",
+      id: "finance_transactions",
+      title: "Edit data finance",
+      count: financeTransactions.length,
+      icon: FileSpreadsheet,
+    },
+    { group: "Account", id: "employees", title: "Akses akun", count: employees.length, icon: Users },
+    { group: "Operasional", id: "bom", title: "BOM", count: bomRecipes.length, icon: Database },
   ];
   const settingCards = settingCardsBase.filter((item) =>
     role === "Owner" ? true : canAccessBomUi(role) && item.id === "bom",
   );
+  const settingCardGroups = Array.from(new Set(settingCards.map((item) => item.group)));
 
   return (
     <div className="grid gap-5 xl:grid-cols-[0.72fr_1.28fr]">
@@ -6349,28 +6451,35 @@ function SettingsPage({
           <CardTitle className="mt-1">Pengaturan Data</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className={cn("grid gap-2", settingCards.length >= 4 ? "sm:grid-cols-2 xl:grid-cols-4" : "sm:grid-cols-2")}>
-            {settingCards.map((item) => {
-              const Icon = item.icon;
-              return (
-                <button
-                  className={cn(
-                    "rounded-md border bg-muted/35 p-3 text-left transition hover:border-primary hover:bg-primary/5",
-                    activePanel === item.id && "border-primary bg-primary/10",
-                  )}
-                  key={item.id}
-                  onClick={() => {
-                    setActivePanel(item.id);
-                    setNewValue("");
-                  }}
-                  type="button"
-                >
-                  <Icon className="size-4 text-primary" />
-                  <p className="mt-2 text-sm font-semibold">{item.title}</p>
-                  <p className="mt-1 text-xs text-muted-foreground">{item.count} data</p>
-                </button>
-              );
-            })}
+          <div className="grid gap-4">
+            {settingCardGroups.map((group) => (
+              <div className="grid gap-2" key={group}>
+                <p className="text-[11px] font-bold uppercase text-muted-foreground">{group}</p>
+                <div className={cn("grid gap-2", settingCards.length >= 4 ? "sm:grid-cols-2 xl:grid-cols-4" : "sm:grid-cols-2")}>
+                  {settingCards.filter((item) => item.group === group).map((item) => {
+                    const Icon = item.icon;
+                    return (
+                      <button
+                        className={cn(
+                          "rounded-md border bg-muted/35 p-3 text-left transition hover:border-primary hover:bg-primary/5",
+                          activePanel === item.id && "border-primary bg-primary/10",
+                        )}
+                        key={item.id}
+                        onClick={() => {
+                          setActivePanel(item.id);
+                          setNewValue("");
+                        }}
+                        type="button"
+                      >
+                        <Icon className="size-4 text-primary" />
+                        <p className="mt-2 text-sm font-semibold">{item.title}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">{item.count} data</p>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
 
           <div className="rounded-md border bg-muted/35 p-4">
@@ -6381,7 +6490,7 @@ function SettingsPage({
               <Badge variant="secondary">{panelItems[activePanel].length} item</Badge>
             </div>
 
-            {activePanel !== "product" && activePanel !== "bom" && activePanel !== "employees" ? (
+            {activePanel !== "product" && activePanel !== "bom" && activePanel !== "employees" && activePanel !== "finance_transactions" ? (
               <>
                 <div className="mt-4 flex flex-col gap-2 sm:flex-row">
                   <Input
@@ -6445,6 +6554,50 @@ function SettingsPage({
                   {!panelItems[activePanel].length && <EmptyState message="Belum ada data untuk panel ini." />}
                 </div>
               </>
+            ) : activePanel === "finance_transactions" ? (
+              <div className="mt-4 grid gap-3">
+                {financeTransactions.slice(0, 30).map((item) => {
+                  const draft = financeEditRows[item.id];
+                  const quantity = Number(draft?.quantity ?? item.quantity);
+                  const unitPrice = Number(String(draft?.unitPrice ?? item.unitPrice).replace(/[^\d.-]/g, ""));
+                  const total = Number.isFinite(quantity * unitPrice) ? Math.round(quantity * unitPrice) : item.totalAmount;
+                  const stockLocked = item.category === "keperluan_stock" && !!item.ingredientId;
+                  return (
+                    <div className="grid gap-3 rounded-md border bg-card p-3" key={item.id}>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold">{item.itemName}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {item.type} • {item.subcategory} • {formatRupiah(item.totalAmount)}
+                          </p>
+                        </div>
+                        <Badge variant={item.type === "pendapatan" ? "success" : "warning"}>{item.fundMethod}</Badge>
+                      </div>
+                      <div className="grid gap-3 lg:grid-cols-[130px_120px_minmax(0,1fr)_110px_140px]">
+                        <Input onChange={(event) => updateFinanceEditRow(item.id, { transactionDate: event.target.value })} type="date" value={draft?.transactionDate ?? new Date(item.transactionDate).toISOString().slice(0, 10)} />
+                        <Select onChange={(event) => updateFinanceEditRow(item.id, { fundMethod: event.target.value as FinanceFundMethod })} value={draft?.fundMethod ?? item.fundMethod}>
+                          <option value="cash">Cash</option>
+                          <option value="bank">Bank</option>
+                        </Select>
+                        <Input disabled={stockLocked} onChange={(event) => updateFinanceEditRow(item.id, { itemName: event.target.value })} placeholder="Nama/keterangan" value={draft?.itemName ?? item.itemName} />
+                        <Input min="0.001" onChange={(event) => updateFinanceEditRow(item.id, { quantity: event.target.value })} step="0.001" type="number" value={draft?.quantity ?? String(Number(item.quantity))} />
+                        <Input inputMode="numeric" onChange={(event) => updateFinanceEditRow(item.id, { unitPrice: event.target.value })} placeholder="Rp 0" value={draft?.unitPrice ?? String(item.unitPrice)} />
+                      </div>
+                      <div className="grid gap-3 lg:grid-cols-[1fr_auto] lg:items-center">
+                        <Input onChange={(event) => updateFinanceEditRow(item.id, { note: event.target.value })} placeholder="Catatan" value={draft?.note ?? item.note ?? ""} />
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="font-mono text-sm font-semibold">{formatRupiah(total)}</span>
+                          <Button disabled={savingFinanceId === item.id || total <= 0} onClick={() => void saveFinanceEdit(item)} type="button">
+                            {savingFinanceId === item.id ? <Loader2 className="animate-spin" /> : <Save />}
+                            Simpan
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+                {!financeTransactions.length && <EmptyState message="Belum ada data finance untuk diedit." />}
+              </div>
             ) : activePanel === "employees" ? (
               <div className="mt-4 grid gap-3">
                 {temporaryPassword && (
@@ -6467,7 +6620,7 @@ function SettingsPage({
 
                 <div className="grid gap-2">
                   {employees.map((employee) => (
-                    <div className="grid gap-3 rounded-md border bg-card p-3 sm:grid-cols-[1fr_auto]" key={employee.id}>
+                    <div className="grid gap-3 rounded-md border bg-card p-3 lg:grid-cols-[1fr_170px_auto]" key={employee.id}>
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
                           <p className="truncate text-sm font-semibold">{employee.name}</p>
@@ -6476,8 +6629,22 @@ function SettingsPage({
                         </div>
                         <p className="mt-1 truncate text-xs text-muted-foreground">{employee.email}</p>
                       </div>
+                      <label className="grid gap-1.5 text-xs font-semibold text-muted-foreground">
+                        Akses
+                        <Select
+                          disabled={updatingRoleEmployeeId === employee.id || resettingEmployeeId === employee.id}
+                          onChange={(event) => void updateEmployeeRole(employee, event.target.value as Exclude<Role, "Owner">)}
+                          value={employee.role}
+                        >
+                          {staffRoles.map((item) => (
+                            <option key={item} value={item}>
+                              {item}
+                            </option>
+                          ))}
+                        </Select>
+                      </label>
                       <Button
-                        disabled={resettingEmployeeId === employee.id}
+                        disabled={resettingEmployeeId === employee.id || updatingRoleEmployeeId === employee.id}
                         onClick={() => void resetEmployeePassword(employee)}
                         type="button"
                         variant="outline"
@@ -6527,11 +6694,11 @@ function SettingsPage({
                         <div className="grid gap-3 sm:grid-cols-3">
                           <label className="grid gap-1.5 text-sm font-semibold">
                             Stock
-                            <Input min="0" onChange={(event) => updateProductDraft({ stock: event.target.value })} placeholder="0" type="number" value={productDraft.stock} />
+                            <Input min="0" onChange={(event) => updateProductDraft({ stock: event.target.value })} placeholder="0" step="0.001" type="number" value={productDraft.stock} />
                           </label>
                           <label className="grid gap-1.5 text-sm font-semibold">
                             Minim stock
-                            <Input min="0" onChange={(event) => updateProductDraft({ minimumStock: event.target.value })} placeholder="0" type="number" value={productDraft.minimumStock} />
+                            <Input min="0" onChange={(event) => updateProductDraft({ minimumStock: event.target.value })} placeholder="0" step="0.001" type="number" value={productDraft.minimumStock} />
                           </label>
                           <label className="grid gap-1.5 text-sm font-semibold">
                             Harga
@@ -6598,11 +6765,11 @@ function SettingsPage({
                               <div className="grid gap-3 sm:grid-cols-3">
                                 <label className="grid gap-1.5 text-sm font-semibold">
                                   Stock
-                                  <Input min="0" onChange={(event) => updateProductEditRow(row.key, { stock: event.target.value })} placeholder="0" type="number" value={row.stock} />
+                                  <Input min="0" onChange={(event) => updateProductEditRow(row.key, { stock: event.target.value })} placeholder="0" step="0.001" type="number" value={row.stock} />
                                 </label>
                                 <label className="grid gap-1.5 text-sm font-semibold">
                                   Minim stock
-                                  <Input min="0" onChange={(event) => updateProductEditRow(row.key, { minimumStock: event.target.value })} placeholder="0" type="number" value={row.minimumStock} />
+                                  <Input min="0" onChange={(event) => updateProductEditRow(row.key, { minimumStock: event.target.value })} placeholder="0" step="0.001" type="number" value={row.minimumStock} />
                                 </label>
                                 <label className="grid gap-1.5 text-sm font-semibold">
                                   Harga
@@ -6645,7 +6812,7 @@ function SettingsPage({
                           </label>
                           <label className="grid gap-1.5 text-sm font-semibold">
                             Hasil
-                            <Input min="0" onChange={(event) => updateBomDraft({ yieldQuantity: event.target.value })} placeholder="20" type="number" value={bomDraft.yieldQuantity} />
+                            <Input min="0.001" onChange={(event) => updateBomDraft({ yieldQuantity: event.target.value })} placeholder="20 atau 0.001" step="0.001" type="number" value={bomDraft.yieldQuantity} />
                           </label>
                           <label className="grid gap-1.5 text-sm font-semibold">
                             Satuan hasil
@@ -6656,7 +6823,7 @@ function SettingsPage({
                         <div className="grid gap-3 sm:grid-cols-2">
                           <label className="grid gap-1.5 text-sm font-semibold">
                             Minimum stock BOM
-                            <Input min="0" onChange={(event) => updateBomDraft({ minimumStock: event.target.value })} placeholder="0" type="number" value={bomDraft.minimumStock} />
+                            <Input min="0" onChange={(event) => updateBomDraft({ minimumStock: event.target.value })} placeholder="0" step="0.001" type="number" value={bomDraft.minimumStock} />
                           </label>
                           <div className="grid content-end">
                             <Badge className="h-10 justify-center" variant="secondary">
@@ -6684,7 +6851,7 @@ function SettingsPage({
                                     </option>
                                   ))}
                                 </Select>
-                                <Input min="0" onChange={(event) => updateBomItem(item.key, { quantity: event.target.value })} placeholder="Qty" type="number" value={item.quantity} />
+                                <Input min="0.001" onChange={(event) => updateBomItem(item.key, { quantity: event.target.value })} placeholder="0.001" step="0.001" type="number" value={item.quantity} />
                                 <Input disabled placeholder="Nominal" value={item.totalCost ? formatRupiah(Number(item.totalCost)) : ""} />
                                 <Button aria-label="Hapus bahan BOM" onClick={() => removeBomItem(item.key)} size="icon" type="button" variant="outline">
                                   <Trash2 />
@@ -7174,7 +7341,7 @@ function FinanceInputPage({
                           </label>
                           <label className="grid gap-1.5 text-sm font-semibold">
                             <span className="sr-only">Jumlah barang</span>
-                            <Input disabled={submitting} min="0" onChange={(event) => updateExpenseRow(row.key, { quantity: event.target.value })} type="number" value={row.quantity} />
+                            <Input disabled={submitting} min="0.001" onChange={(event) => updateExpenseRow(row.key, { quantity: event.target.value })} placeholder="0.001" step="0.001" type="number" value={row.quantity} />
                           </label>
                           <label className="grid gap-1.5 text-sm font-semibold">
                             <span className="sr-only">Nominal Rupiah</span>

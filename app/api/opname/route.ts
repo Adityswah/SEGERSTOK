@@ -258,11 +258,11 @@ export async function POST(request: Request) {
           await tx
             .update(stockOpnameItemSummariesTable)
             .set({
-              totalRoleActual: String(totalRoleActual.toFixed(2)),
+              totalRoleActual: String(totalRoleActual.toFixed(3)),
               ...(role === "Owner"
                 ? {
                     finalActual: String(row.actualQty),
-                    varianceQty: String(ownerVarianceQty.toFixed(2)),
+                    varianceQty: String(ownerVarianceQty.toFixed(3)),
                     variancePercent: String(variancePercent(systemStock, row.actualQty).toFixed(2)),
                     estimatedVarianceValue: 0,
                     ownerFinalNote: row.note ?? "Input final aktual Owner",
@@ -315,7 +315,7 @@ export async function POST(request: Request) {
             .update(stockOpnameItemSummariesTable)
             .set({
               finalActual: String(row.finalActual),
-              varianceQty: String(varianceQty.toFixed(2)),
+              varianceQty: String(varianceQty.toFixed(3)),
               variancePercent: String(variancePercent(systemStock, row.finalActual).toFixed(2)),
               estimatedVarianceValue: Math.round(varianceQty * 0),
               ownerFinalNote: row.ownerFinalNote,
@@ -385,7 +385,7 @@ export async function POST(request: Request) {
           referenceId: body.sessionId,
           stockBefore: String(stockBefore),
           stockAfter: String(finalActual),
-          delta: String((finalActual - stockBefore).toFixed(2)),
+          delta: String((finalActual - stockBefore).toFixed(3)),
           reason: item.ownerFinalNote ?? "Final opname bulanan",
           operatorId: authSession.user.id,
           operatorName: authSession.user.name,

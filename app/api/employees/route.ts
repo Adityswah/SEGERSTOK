@@ -13,6 +13,14 @@ const resetPasswordSchema = z.object({
   userId: z.string().min(1),
 });
 
+const updateRoleSchema = z.object({
+  action: z.literal("update-role"),
+  userId: z.string().min(1),
+  role: z.enum(["Kasir", "Cheef", "Waiters"]),
+});
+
+const employeeActionSchema = z.discriminatedUnion("action", [resetPasswordSchema, updateRoleSchema]);
+
 function temporaryPassword() {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
   const bytes = crypto.getRandomValues(new Uint8Array(12));
@@ -53,11 +61,33 @@ export async function POST(request: Request) {
 
     const authSession = await requireSession();
     if (!authSession) return unauthorized();
-    if (getRole(authSession) !== "Owner") return forbidden("Hanya Owner yang bisa reset password karyawan");
+    if (getRole(authSession) !== "Owner") return forbidden("Hanya Owner yang bisa mengelola karyawan");
 
-    const { data: body, response } = await parseJsonBody(request, resetPasswordSchema, 8_000);
+    const { data: body, response } = await parseJsonBody(request, employeeActionSchema, 8_000);
     if (response) return response;
-    if (body.userId === authSession.user.id) return badRequest("Owner tidak boleh reset password sendiri dari menu karyawan");
+    if (body.userId === authSession.user.id) return badRequest("Owner tidak boleh mengubah akun sendiri dari menu karyawan");
+
+    if (body.action === "update-role") {
+      const [employee] = await db
+        .update(user)
+        .set({ role: body.role, updatedAt: new Date() })
+        .where(and(eq(user.id, body.userId), ne(user.role, "Owner")))
+        .returning({
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          mustChangePassword: user.mustChangePassword,
+          createdAt: user.createdAt,
+          updatedAt: user.updatedAt,
+        });
+
+      if (!employee) return badRequest("Karyawan tidak ditemukan");
+
+      await db.delete(sessionTable).where(eq(sessionTable.userId, employee.id));
+
+      return ok({ employee });
+    }
 
     const password = temporaryPassword();
     const result = await db.transaction(async (tx) => {

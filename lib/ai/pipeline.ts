@@ -126,10 +126,10 @@ function buildWeeklyProjections(
       itemName: ingredient.name,
       weekStart,
       weekEnd,
-      currentStock: Number(currentStock.toFixed(2)),
-      predictedWeeklyUsage: Number(predictedWeeklyUsage.toFixed(2)),
-      predictedEndingStock: Number(predictedEndingStock.toFixed(2)),
-      stockCoverDays: Number(stockCoverDays.toFixed(2)),
+      currentStock: Number(currentStock.toFixed(3)),
+      predictedWeeklyUsage: Number(predictedWeeklyUsage.toFixed(3)),
+      predictedEndingStock: Number(predictedEndingStock.toFixed(3)),
+      stockCoverDays: Number(stockCoverDays.toFixed(3)),
       riskBoostPercent,
     };
   });
@@ -145,20 +145,20 @@ async function persistWeeklyProjections(projections: ProjectionRow[]) {
         ingredientId: projection.ingredientId,
         weekStart: projection.weekStart,
         weekEnd: projection.weekEnd,
-        currentStock: projection.currentStock.toFixed(2),
-        predictedWeeklyUsage: projection.predictedWeeklyUsage.toFixed(2),
-        predictedEndingStock: projection.predictedEndingStock.toFixed(2),
-        stockCoverDays: projection.stockCoverDays.toFixed(2),
+        currentStock: projection.currentStock.toFixed(3),
+        predictedWeeklyUsage: projection.predictedWeeklyUsage.toFixed(3),
+        predictedEndingStock: projection.predictedEndingStock.toFixed(3),
+        stockCoverDays: projection.stockCoverDays.toFixed(3),
         riskBoostPercent: projection.riskBoostPercent.toFixed(2),
       })
       .onConflictDoUpdate({
         target: [aiWeeklyStockProjectionsTable.ingredientId, aiWeeklyStockProjectionsTable.weekStart],
         set: {
           weekEnd: projection.weekEnd,
-          currentStock: projection.currentStock.toFixed(2),
-          predictedWeeklyUsage: projection.predictedWeeklyUsage.toFixed(2),
-          predictedEndingStock: projection.predictedEndingStock.toFixed(2),
-          stockCoverDays: projection.stockCoverDays.toFixed(2),
+          currentStock: projection.currentStock.toFixed(3),
+          predictedWeeklyUsage: projection.predictedWeeklyUsage.toFixed(3),
+          predictedEndingStock: projection.predictedEndingStock.toFixed(3),
+          stockCoverDays: projection.stockCoverDays.toFixed(3),
           riskBoostPercent: projection.riskBoostPercent.toFixed(2),
           createdAt: new Date(),
         },
@@ -205,7 +205,7 @@ function buildRecommendations(
       ingredientId: projection.ingredientId,
       recommendationDate,
       action,
-      recommendedQuantity: Number(recommendedQuantity.toFixed(2)),
+      recommendedQuantity: Number(recommendedQuantity.toFixed(3)),
       priorityScore,
       explanation:
         action === "beli-sekarang"
@@ -227,7 +227,7 @@ async function persistRecommendations(recommendations: RecommendationRow[]) {
         ingredientId: recommendation.ingredientId,
         recommendationDate: recommendation.recommendationDate,
         action: recommendation.action,
-        recommendedQuantity: recommendation.recommendedQuantity.toFixed(2),
+        recommendedQuantity: recommendation.recommendedQuantity.toFixed(3),
         priorityScore: recommendation.priorityScore,
         explanation: recommendation.explanation,
       })
@@ -235,7 +235,7 @@ async function persistRecommendations(recommendations: RecommendationRow[]) {
         target: [aiBuyRecommendationsTable.ingredientId, aiBuyRecommendationsTable.recommendationDate],
         set: {
           action: recommendation.action,
-          recommendedQuantity: recommendation.recommendedQuantity.toFixed(2),
+          recommendedQuantity: recommendation.recommendedQuantity.toFixed(3),
           priorityScore: recommendation.priorityScore,
           explanation: recommendation.explanation,
           createdAt: new Date(),

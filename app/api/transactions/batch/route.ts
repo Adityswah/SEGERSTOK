@@ -105,7 +105,7 @@ export async function POST(request: Request) {
           referenceId: transaction.id,
           stockBefore: String(stockBefore),
           stockAfter: String(stockAfter),
-          delta: String((stockAfter - stockBefore).toFixed(2)),
+          delta: String((stockAfter - stockBefore).toFixed(3)),
           reason: row.note,
           operatorId: session.user.id,
           operatorName: session.user.name,

@@ -34,6 +34,16 @@ const financeTransactionSchema = z.object({
   attachmentName: z.string().trim().max(240).optional(),
 });
 
+const financeTransactionEditSchema = z.object({
+  id: z.string().trim().min(1),
+  fundMethod: z.enum(["cash", "bank"]).optional(),
+  itemName: z.string().trim().min(1).max(160).optional(),
+  quantity: z.coerce.number().positive().optional(),
+  unitPrice: z.coerce.number().int().positive().optional(),
+  transactionDate: z.coerce.date().optional(),
+  note: z.string().trim().max(500).optional(),
+});
+
 function financeWhereClause(role: ReturnType<typeof getRole>, userId: string, start: Date | null, end: Date | null) {
   const clauses = [isNull(financeTransactionsTable.deletedAt)];
   if (!canReadFinance(role)) clauses.push(eq(financeTransactionsTable.operatorId, userId));
@@ -111,12 +121,12 @@ export async function POST(request: Request) {
 
     const rows = await db.transaction(async (tx) => {
       const savedRows = [];
-      let stockCategory: string | null = null;
       for (const item of items) {
         let stockTransactionId: string | null = null;
         let itemName = item.itemName ?? subcategory ?? "Pendapatan";
         let unit = body.type === "pendapatan" ? "transaksi" : "item";
         let ingredientId: string | null = null;
+        let rowSubcategory = subcategory ?? "Pendapatan";
 
         if (category === "keperluan_stock") {
           const [ingredient] = await tx
@@ -126,14 +136,11 @@ export async function POST(request: Request) {
             .limit(1);
 
           if (!ingredient) throw new Error("Barang Master Data tidak ditemukan");
-          if (stockCategory && ingredient.category !== stockCategory) {
-            throw new Error("Barang pengeluaran stock harus dalam satu kategori stock yang sama");
-          }
-          stockCategory = ingredient.category;
 
           ingredientId = ingredient.id;
           itemName = ingredient.name;
           unit = ingredient.unit;
+          rowSubcategory = ingredient.category;
         }
 
         const financeId = crypto.randomUUID();
@@ -145,7 +152,7 @@ export async function POST(request: Request) {
             type: body.type,
             fundMethod: body.fundMethod,
             category,
-            subcategory: category === "keperluan_stock" ? stockCategory ?? "Keperluan Stock" : subcategory ?? "Pendapatan",
+            subcategory: rowSubcategory,
             ingredientId,
             itemName,
             quantity: String(item.quantity),
@@ -205,7 +212,7 @@ export async function POST(request: Request) {
             referenceId: stockTransaction.id,
             stockBefore: String(stockBefore),
             stockAfter: String(stockAfter),
-            delta: String(item.quantity.toFixed(2)),
+            delta: String(item.quantity.toFixed(3)),
             reason: body.note ? `Finance Keperluan Stock - ${body.note}` : "Finance Keperluan Stock",
             operatorId: session.user.id,
             operatorName: session.user.name,
@@ -226,6 +233,117 @@ export async function POST(request: Request) {
     return created(rows.length === 1 ? rows[0] : { inserted: rows.length, rows });
   } catch (error) {
     if (error instanceof Error && (error.message.includes("tidak ditemukan") || error.message.includes("Subkategori"))) {
+      return badRequest(error.message);
+    }
+
+    return serverError(error);
+  }
+}
+
+export async function PATCH(request: Request) {
+  try {
+    const guard = guardMutation(request, { keyPrefix: "finance:transactions:edit", limit: 30, windowMs: 60_000 });
+    if (guard) return guard;
+
+    const session = await requireSession();
+    if (!session) return unauthorized();
+    if (getRole(session) !== "Owner") return forbidden("Hanya Owner yang bisa edit data finance");
+
+    const { data: body, response } = await parseJsonBody(request, financeTransactionEditSchema, 16_000);
+    if (response) return response;
+
+    const updated = await db.transaction(async (tx) => {
+      const [current] = await tx
+        .select()
+        .from(financeTransactionsTable)
+        .where(and(eq(financeTransactionsTable.id, body.id), isNull(financeTransactionsTable.deletedAt)))
+        .limit(1);
+
+      if (!current) throw new Error("Transaksi finance tidak ditemukan");
+
+      const nextQuantity = body.quantity ?? Number(current.quantity);
+      const nextUnitPrice = body.unitPrice ?? current.unitPrice;
+      const nextTotalAmount = Math.round(nextQuantity * nextUnitPrice);
+      const nextTransactionDate = body.transactionDate ?? current.transactionDate;
+      const nextNote = body.note ?? current.note ?? undefined;
+      const nextItemName =
+        current.category === "keperluan_stock" && current.ingredientId
+          ? current.itemName
+          : body.itemName ?? current.itemName;
+
+      if (current.category === "keperluan_stock" && current.ingredientId) {
+        const quantityBefore = Number(current.quantity);
+        const quantityDelta = nextQuantity - quantityBefore;
+
+        if (quantityDelta !== 0) {
+          const [ingredientBefore] = await tx
+            .select({ stock: ingredientsTable.stock })
+            .from(ingredientsTable)
+            .where(eq(ingredientsTable.id, current.ingredientId))
+            .limit(1);
+
+          if (!ingredientBefore) throw new Error("Barang Master Data tidak ditemukan");
+
+          const stockBefore = Number(ingredientBefore.stock);
+          const stockAfter = stockBefore + quantityDelta;
+          if (stockAfter < 0) throw new Error("Edit finance membuat stock menjadi minus");
+
+          await tx
+            .update(ingredientsTable)
+            .set({
+              stock: sql`${ingredientsTable.stock} + ${String(quantityDelta)}`,
+              updatedAt: new Date(),
+            })
+            .where(eq(ingredientsTable.id, current.ingredientId));
+
+          await tx.insert(stockLedgerTable).values({
+            id: crypto.randomUUID(),
+            ingredientId: current.ingredientId,
+            source: "stock_in",
+            referenceId: current.linkedStockTransactionId ?? current.id,
+            stockBefore: String(stockBefore),
+            stockAfter: String(stockAfter),
+            delta: String(quantityDelta.toFixed(3)),
+            reason: nextNote ? `Edit Finance Keperluan Stock - ${nextNote}` : "Edit Finance Keperluan Stock",
+            operatorId: session.user.id,
+            operatorName: session.user.name,
+          });
+        }
+
+        if (current.linkedStockTransactionId) {
+          await tx
+            .update(stockTransactionsTable)
+            .set({
+              quantity: String(nextQuantity),
+              unitPrice: nextUnitPrice,
+              transactionDate: nextTransactionDate,
+              note: nextNote ? `Finance Keperluan Stock - ${nextNote}` : "Finance Keperluan Stock",
+            })
+            .where(eq(stockTransactionsTable.id, current.linkedStockTransactionId));
+        }
+      }
+
+      const [financeRow] = await tx
+        .update(financeTransactionsTable)
+        .set({
+          fundMethod: body.fundMethod ?? current.fundMethod,
+          itemName: nextItemName,
+          quantity: String(nextQuantity),
+          unitPrice: nextUnitPrice,
+          totalAmount: nextTotalAmount,
+          transactionDate: nextTransactionDate,
+          note: nextNote,
+          updatedAt: new Date(),
+        })
+        .where(eq(financeTransactionsTable.id, current.id))
+        .returning();
+
+      return financeRow;
+    });
+
+    return ok(updated);
+  } catch (error) {
+    if (error instanceof Error && (error.message.includes("ditemukan") || error.message.includes("minus"))) {
       return badRequest(error.message);
     }
 
