@@ -8,7 +8,7 @@ import { guardMutation, parseJsonBody } from "@/lib/api/security";
 const querySchema = z.object({
   message: z.string().min(2).max(500),
   activePage: z
-    .enum(["dashboard", "stok", "ai", "laporan", "supplier", "bahan", "pengaturan", "other"])
+    .enum(["dashboard", "stok", "ai", "laporan", "bahan", "pengaturan", "other"])
     .default("other"),
 });
 
@@ -42,9 +42,9 @@ export async function POST(request: Request) {
       integratedFeatures: [
         "dashboard",
         "stok",
-        "prediksi harga",
+        "rekomendasi waktu beli",
+        "proyeksi stok mingguan",
         "laporan",
-        "supplier",
         "master bahan",
         "pengaturan",
       ],

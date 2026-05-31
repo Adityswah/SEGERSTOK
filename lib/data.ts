@@ -2,13 +2,14 @@ import {
   ArrowDownToLine,
   ArrowUpFromLine,
   Boxes,
+  Calculator,
   ClipboardCheck,
   ClipboardList,
   Gauge,
   LogOut,
   ScrollText,
   Settings2,
-  Store,
+  SlidersHorizontal,
   TrendingUp,
 } from "lucide-react";
 
@@ -29,16 +30,9 @@ export type Ingredient = {
 
 type SeedIngredient = Omit<Ingredient, "id" | "category">;
 
-export const pins: Record<Role, string> = {
-  Owner: "123456",
-  Kasir: "123456",
-  Cheef: "123456",
-  Waiters: "123456",
-};
-
 export const roleAccess: Record<Role, string[]> = {
   Owner: ["Akses penuh", "Export data", "Import data", "Setting"],
-  Kasir: ["Input stok masuk", "Input stok keluar", "Data aktual akhir bulan"],
+  Kasir: ["Input stok", "Input finance", "Data aktual akhir bulan"],
   Cheef: ["Input stok masuk", "Input stok keluar", "Data aktual akhir bulan"],
   Waiters: ["Input stok masuk", "Input stok keluar", "Data aktual akhir bulan"],
 };
@@ -46,12 +40,13 @@ export const roleAccess: Record<Role, string[]> = {
 export const navItems = [
   { id: "dashboard", label: "Dashboard", icon: Gauge, group: "Utama" },
   { id: "stok", label: "Stock", icon: Boxes, group: "Utama", badge: "3" },
+  { id: "input", label: "Input", icon: Calculator, group: "Operasional" },
   { id: "stok-masuk", label: "Stock Masuk", icon: ArrowDownToLine, group: "Transaksi" },
   { id: "stok-keluar", label: "Stock Keluar", icon: ArrowUpFromLine, group: "Transaksi" },
   { id: "opname", label: "Opname", icon: ClipboardCheck, group: "Transaksi" },
-  { id: "ai", label: "Prediksi Harga", icon: TrendingUp, group: "Analitik" },
+  { id: "koreksi-stok", label: "Koreksi Stok", icon: SlidersHorizontal, group: "Transaksi" },
+  { id: "ai", label: "AI Stok", icon: TrendingUp, group: "Analitik" },
   { id: "laporan", label: "Laporan", icon: ScrollText, group: "Analitik" },
-  { id: "supplier", label: "Supplier", icon: Store, group: "Data" },
   { id: "bahan", label: "Master Bahan", icon: ClipboardList, group: "Data" },
   { id: "pengaturan", label: "Pengaturan", icon: Settings2, group: "Pengaturan" },
 ] as const;
@@ -171,33 +166,6 @@ export function stockStatus(item: Pick<Ingredient, "stock" | "minimum">) {
   return { label: "Aman", variant: "success" as const, tone: "green", ratio };
 }
 
-export const suppliers = [
-  {
-    name: "Pak Roni Daging Segar",
-    items: "Daging sapi, babat, kikil",
-    rating: 4.8,
-    spend: 4850000,
-    initials: "PR",
-    color: "bg-red-100 text-red-700",
-  },
-  {
-    name: "Bu Sri Sayur Pagi",
-    items: "Sayuran, rempah segar",
-    rating: 4.7,
-    spend: 1820000,
-    initials: "BS",
-    color: "bg-emerald-100 text-emerald-700",
-  },
-  {
-    name: "Toko Makmur Bumbu",
-    items: "Bumbu kering, minyak, beras",
-    rating: 4.6,
-    spend: 2675000,
-    initials: "TM",
-    color: "bg-blue-100 text-blue-700",
-  },
-];
-
 export const movements = [
   { time: "08:12", type: "Masuk", item: "Daging sapi has dalam", qty: "2 kg", operator: "Admin" },
   { time: "09:35", type: "Keluar", item: "Bawang merah", qty: "0.4 kg", operator: "Kasir" },
@@ -223,174 +191,6 @@ export const aiInsights = [
     title: "Minyak goreng naik tipis",
     desc: "Beberapa laporan 7 Mei 2026 mencatat minyak goreng curah dan kemasan bergerak naik.",
     confidence: 74,
-    impact: "Pantau supplier minyak",
-  },
-];
-
-export const priceNews = [
-  {
-    source: "PIHPS via BabelInsight",
-    date: "17 Mei 2026",
-    title: "Harga Pangan Strategis 17 Mei 2026 Bergerak Fluktuatif",
-    commodity: "Cabai, minyak goreng, daging ayam, bawang, beras",
-    signal: "Cabai naik kuat",
-    summary:
-      "PIHPS Bank Indonesia per 17 Mei 2026 mencatat cabai rawit merah Rp71.400/kg (+9,26%), cabai merah besar Rp55.200/kg (+5,34%), daging ayam Rp40.400/kg (+3,32%), dan minyak goreng kemasan I Rp24.250/kg (+1,89%).",
-    url: "https://www.babelinsight.id/harga-pangan-strategis-17-mei-2026",
-  },
-  {
-    source: "PIHPS via tvOne",
-    date: "17 Mei 2026",
-    title: "Lonjakan Harga Hantam Pasar Pangan Nasional, Cabai hingga Minyak Goreng Merangkak Naik",
-    commodity: "Cabai rawit merah, cabai merah besar, cabai merah keriting, minyak goreng",
-    signal: "Naik",
-    summary:
-      "PIHPS Nasional 17 Mei 2026 menunjukkan cabai rawit merah naik 9,26% menjadi Rp71.400/kg, cabai merah besar Rp55.200/kg, dan cabai merah keriting Rp50.450/kg.",
-    url: "https://www.tvonenews.com/berita/nasional/440795-lonjakan-harga-hantam-pasar-pangan-nasional-cabai-hingga-minyak-goreng-merangkak-naik",
-  },
-  {
-    source: "PIHPS via IDXChannel",
-    date: "17 Mei 2026",
-    title: "Mayoritas Bahan Pangan Turun Harga pada Minggu 17 Mei 2026",
-    commodity: "Bawang merah, bawang putih, beras",
-    signal: "Turun",
-    summary:
-      "PIHPS Nasional 17 Mei 2026 mencatat bawang merah turun 1,28% menjadi Rp46.200/kg, bawang putih turun 1,02% menjadi Rp38.750/kg, dan beberapa jenis beras ikut terkoreksi.",
-    url: "https://www.idxchannel.com/playlists/mayoritas-bahan-pangan-turun-harga-pada-minggu-17-mei-2026",
-  },
-  {
-    source: "Liputan6",
-    date: "7 Mei 2026",
-    title: "Harga Pangan 7 Mei 2026: Cabai Rawit Merah Rp63.700, Telur Ayam Rp31.400",
-    commodity: "Cabai rawit merah, telur, bawang",
-    signal: "Waspada naik",
-    summary:
-      "PIHPS mencatat cabai rawit merah Rp63.700/kg, bawang merah Rp48.300/kg, dan bawang putih Rp39.050/kg.",
-    url: "https://www.liputan6.com/bisnis/read/6335232/harga-pangan-7-mei-2026-cabai-rawit-merah-rp-63700-telur-ayam-rp-31400",
-  },
-  {
-    source: "Okezone",
-    date: "7 Mei 2026",
-    title: "Update Harga Pangan: Cabai, Daging Ayam hingga Minyak Goreng Naik",
-    commodity: "Cabai, ayam, minyak goreng",
-    signal: "Naik",
-    summary:
-      "Cabai rawit merah naik 7,37% ke Rp64.850/kg; cabai merah besar, keriting, ayam, dan minyak goreng ikut naik.",
-    url: "https://economy.okezone.com/read/2026/05/07/320/3216899/update-harga-pangan-cabai-daging-ayam-hingga-minyak-goreng-naik",
-  },
-  {
-    source: "Suara",
-    date: "7 Mei 2026",
-    title: "Harga Pangan Nasional 7 Mei 2026: Bawang Merah Meroket, Cabai dan Minyak Goreng Ikut Naik",
-    commodity: "Bawang merah, cabai, minyak goreng",
-    signal: "Naik",
-    summary:
-      "Tekanan harga masih terjadi pada bawang merah, cabai, dan minyak goreng kemasan bermerek.",
-    url: "https://www.suara.com/bisnis/2026/05/07/095830/harga-pangan-nasional-7-mei-2026-bawang-merah-meroket-cabai-dan-minyak-goreng-ikut-naik",
-  },
-  {
-    source: "Suara",
-    date: "6 Mei 2026",
-    title: "Harga Pangan Hari Ini: Bawang hingga Cabai Kompak Naik",
-    commodity: "Bawang, cabai, beras",
-    signal: "Naik",
-    summary:
-      "Kenaikan paling kuat dilaporkan pada bawang, cabai, beras, daging sapi, dan gula.",
-    url: "https://www.suara.com/bisnis/2026/05/06/111850/harga-pangan-hari-ini-bawang-hingga-cabai-kompak-naik-beras-dan-minyak-goreng-ikut-terkerek",
-  },
-  {
-    source: "Kompas",
-    date: "14 Maret 2026",
-    title: "Mengapa Harga Bahan Pokok Cenderung Naik Jelang Lebaran?",
-    commodity: "Cabai rawit merah",
-    signal: "Musiman",
-    summary:
-      "Kompas menjelaskan permintaan Lebaran mendorong kenaikan; cabai rawit merah disebut menjadi komoditas yang ekstrem naik.",
-    url: "https://amp.kompas.com/tren/read/2026/03/14/180000665/mengapa-harga-bahan-pokok-cenderung-naik-jelang-lebaran-",
-  },
-  {
-    source: "Detik",
-    date: "21 Februari 2026",
-    title: "Harga Pangan Mahal Awal Ramadan: Cabai Rp113.000/Kg-Ayam Rp44.000/Kg",
-    commodity: "Cabai, ayam, bawang, daging sapi",
-    signal: "Musiman",
-    summary:
-      "DKI melaporkan cabai rawit, cabai keriting, bawang merah, daging ayam, dan daging sapi naik pada awal Ramadan.",
-    url: "https://finance.detik.com/berita-ekonomi-bisnis/d-8366045/harga-pangan-mahal-awal-ramadan-cabai-rp-113-000-kg-ayam-rp-44-000-kg",
-  },
-];
-
-export const priceForecast = [
-  {
-    item: "Cabai rawit merah",
-    current: 71400,
-    next: 78000,
-    change: "+9.26%",
-    risk: "Tinggi",
-    source: "PIHPS via BabelInsight, PIHPS via tvOne",
-    date: "2026-05-17",
-  },
-  {
-    item: "Cabai merah keriting",
-    current: 50450,
-    next: 50600,
-    change: "+0.30%",
-    risk: "Sedang",
-    source: "PIHPS via BabelInsight, PIHPS via tvOne",
-    date: "2026-05-17",
-  },
-  {
-    item: "Cabai merah besar",
-    current: 55200,
-    next: 58150,
-    change: "+5.34%",
-    risk: "Tinggi",
-    source: "PIHPS via BabelInsight, PIHPS via tvOne",
-    date: "2026-05-17",
-  },
-  {
-    item: "Daging ayam",
-    current: 40400,
-    next: 41750,
-    change: "+3.32%",
-    risk: "Sedang",
-    source: "PIHPS via BabelInsight",
-    date: "2026-05-17",
-  },
-  {
-    item: "Minyak goreng",
-    current: 24250,
-    next: 24700,
-    change: "+1.89%",
-    risk: "Sedang",
-    source: "PIHPS via BabelInsight",
-    date: "2026-05-17",
-  },
-  {
-    item: "Bawang merah",
-    current: 46200,
-    next: 45600,
-    change: "-1.28%",
-    risk: "Rendah",
-    source: "PIHPS via IDXChannel, PIHPS via BabelInsight",
-    date: "2026-05-17",
-  },
-  {
-    item: "Bawang putih",
-    current: 38750,
-    next: 38350,
-    change: "-1.02%",
-    risk: "Rendah",
-    source: "PIHPS via IDXChannel, PIHPS via BabelInsight",
-    date: "2026-05-17",
-  },
-  {
-    item: "Beras putih",
-    current: 14650,
-    next: 14750,
-    change: "+0.69%",
-    risk: "Rendah",
-    source: "PIHPS via BabelInsight",
-    date: "2026-05-17",
+    impact: "Pantau stok dan harga minyak",
   },
 ];

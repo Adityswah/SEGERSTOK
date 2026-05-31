@@ -8,6 +8,7 @@ import {
   bomRecipeItemsTable,
   bomRecipesTable,
   ingredientsTable,
+  stockLedgerTable,
   stockTransactionsTable,
 } from "@/db/schema";
 import { canAccessBom, getRole, requireSession } from "@/lib/api/authz";
@@ -17,7 +18,7 @@ import { guardMutation, parseJsonBody } from "@/lib/api/security";
 const produceSchema = z.object({
   bomId: z.string().min(2),
   productionCount: z.coerce.number().positive(),
-  operatorName: z.string().trim().min(2).max(80),
+  operatorName: z.string().trim().min(2).max(80).optional(),
   transactionDate: z.coerce.date().optional(),
   note: z.string().trim().max(500).optional(),
 });
@@ -135,6 +136,11 @@ export async function POST(request: Request) {
     const productionDate = body.transactionDate ?? new Date();
     const totalProduced = Number(recipe.yieldQuantity) * batches;
     const totalCost = Math.round(recipe.totalCost * batches);
+    const [finishedIngredient] = await db
+      .select({ stock: ingredientsTable.stock })
+      .from(ingredientsTable)
+      .where(eq(ingredientsTable.id, recipe.finishedIngredientId))
+      .limit(1);
 
     await db.transaction(async (tx) => {
       const productionRunId = crypto.randomUUID();
@@ -144,6 +150,18 @@ export async function POST(request: Request) {
         const ingredient = ingredientMap.get(item.ingredientId);
         if (!ingredient) throw new Error("Ingredient snapshot tidak ditemukan saat produksi BOM");
         const unitCost = Math.round(item.totalCost / Number(item.quantity));
+        const [currentIngredient] = await tx
+          .select({ stock: ingredientsTable.stock })
+          .from(ingredientsTable)
+          .where(eq(ingredientsTable.id, item.ingredientId))
+          .limit(1);
+
+        if (!currentIngredient) throw new Error("Ingredient tidak ditemukan saat produksi BOM");
+
+        const stockBefore = Number(currentIngredient.stock);
+        if (stockBefore < requiredQty) {
+          throw new Error(`Stok ${ingredient.name} tidak cukup untuk produksi BOM`);
+        }
 
         await tx.insert(stockTransactionsTable).values({
           id: crypto.randomUUID(),
@@ -153,17 +171,30 @@ export async function POST(request: Request) {
           transactionDate: productionDate,
           clientRequestId,
           operatorId: session.user.id,
-          operatorName: body.operatorName,
+          operatorName: session.user.name,
           note: body.note?.trim() || `Produksi BOM ${recipe.name}`,
         });
 
+        const stockAfter = stockBefore - requiredQty;
         await tx
           .update(ingredientsTable)
           .set({
-            stock: sql`greatest(${ingredientsTable.stock} - ${String(requiredQty)}, 0)`,
+            stock: sql`${ingredientsTable.stock} - ${String(requiredQty)}`,
             updatedAt: new Date(),
           })
           .where(eq(ingredientsTable.id, item.ingredientId));
+        await tx.insert(stockLedgerTable).values({
+          id: crypto.randomUUID(),
+          ingredientId: item.ingredientId,
+          source: "bom_production",
+          referenceId: productionRunId,
+          stockBefore: String(stockBefore),
+          stockAfter: String(stockAfter),
+          delta: String((stockAfter - stockBefore).toFixed(2)),
+          reason: body.note?.trim() || `Produksi BOM ${recipe.name}`,
+          operatorId: session.user.id,
+          operatorName: session.user.name,
+        });
 
         await tx.insert(bomProductionRunItemsTable).values({
           id: crypto.randomUUID(),
@@ -186,10 +217,12 @@ export async function POST(request: Request) {
         transactionDate: productionDate,
         clientRequestId: `${recipe.id}:${body.productionCount}:${recipe.finishedIngredientId}:${productionDate.toISOString()}:masuk`,
         operatorId: session.user.id,
-        operatorName: body.operatorName,
+        operatorName: session.user.name,
         note: body.note?.trim() || `Hasil produksi BOM ${recipe.name}`,
       });
 
+      const finishedStockBefore = Number(finishedIngredient?.stock ?? 0);
+      const finishedStockAfter = finishedStockBefore + totalProduced;
       await tx
         .update(ingredientsTable)
         .set({
@@ -198,6 +231,18 @@ export async function POST(request: Request) {
           updatedAt: new Date(),
         })
         .where(eq(ingredientsTable.id, recipe.finishedIngredientId));
+      await tx.insert(stockLedgerTable).values({
+        id: crypto.randomUUID(),
+        ingredientId: recipe.finishedIngredientId,
+        source: "bom_production",
+        referenceId: productionRunId,
+        stockBefore: String(finishedStockBefore),
+        stockAfter: String(finishedStockAfter),
+        delta: String(totalProduced.toFixed(2)),
+        reason: body.note?.trim() || `Hasil produksi BOM ${recipe.name}`,
+        operatorId: session.user.id,
+        operatorName: session.user.name,
+      });
 
       await tx.insert(bomProductionRunsTable).values({
         id: productionRunId,
@@ -208,7 +253,7 @@ export async function POST(request: Request) {
         totalCost,
         productionDate,
         operatorId: session.user.id,
-        operatorName: body.operatorName,
+        operatorName: session.user.name,
         note: body.note,
       });
     });
@@ -220,6 +265,10 @@ export async function POST(request: Request) {
       batches,
     });
   } catch (error) {
+    if (error instanceof Error && (error.message.includes("tidak cukup") || error.message.includes("tidak ditemukan"))) {
+      return badRequest(error.message);
+    }
+
     return serverError(error);
   }
 }

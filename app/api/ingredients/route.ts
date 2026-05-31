@@ -2,7 +2,7 @@ import { desc, eq, ilike, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { db } from "@/db";
-import { ingredientsTable } from "@/db/schema";
+import { ingredientsTable, stockLedgerTable } from "@/db/schema";
 import { getRole, requireSession } from "@/lib/api/authz";
 import { created, forbidden, ok, serverError, unauthorized } from "@/lib/api/responses";
 import { guardMutation, parseJsonBody } from "@/lib/api/security";
@@ -63,20 +63,41 @@ export async function POST(request: Request) {
     const { data: body, response } = await parseJsonBody(request, ingredientSchema);
     if (response) return response;
 
-    const id = body.id ?? crypto.randomUUID();
-    const [row] = await db
-      .insert(ingredientsTable)
-      .values({
-        id,
-        name: body.name,
-        category: body.category,
-        unit: body.unit,
-        stock: String(body.stock),
-        minimumStock: String(body.minimumStock),
-        averagePrice: body.averagePrice,
-        isBom: body.isBom,
-      })
-      .returning();
+    const row = await db.transaction(async (tx) => {
+      const id = body.id ?? crypto.randomUUID();
+      const [ingredient] = await tx
+        .insert(ingredientsTable)
+        .values({
+          id,
+          name: body.name,
+          category: body.category,
+          unit: body.unit,
+          stock: String(body.stock),
+          minimumStock: String(body.minimumStock),
+          averagePrice: body.averagePrice,
+          isBom: body.isBom,
+        })
+        .returning();
+
+      if (!ingredient) throw new Error("Ingredient gagal dibuat");
+
+      if (body.stock > 0) {
+        await tx.insert(stockLedgerTable).values({
+          id: crypto.randomUUID(),
+          ingredientId: ingredient.id,
+          source: "owner_stock_correction",
+          referenceId: ingredient.id,
+          stockBefore: "0",
+          stockAfter: String(body.stock),
+          delta: String(body.stock.toFixed(2)),
+          reason: "Input product baru dari Settings",
+          operatorId: session.user.id,
+          operatorName: session.user.name,
+        });
+      }
+
+      return ingredient;
+    });
 
     return created(row);
   } catch (error) {
@@ -96,20 +117,45 @@ export async function PATCH(request: Request) {
     const { data: body, response } = await parseJsonBody(request, ingredientPatchSchema);
     if (response) return response;
 
-    const [row] = await db
-      .update(ingredientsTable)
-      .set({
-        name: body.name,
-        category: body.category,
-        unit: body.unit,
-        stock: String(body.stock),
-        minimumStock: String(body.minimumStock),
-        averagePrice: body.averagePrice,
-        isBom: body.isBom,
-        updatedAt: new Date(),
-      })
-      .where(eq(ingredientsTable.id, body.id))
-      .returning();
+    const row = await db.transaction(async (tx) => {
+      const [before] = await tx.select().from(ingredientsTable).where(eq(ingredientsTable.id, body.id)).limit(1);
+      if (!before) return null;
+
+      const stockBefore = Number(before.stock);
+      const stockAfter = body.stock;
+      const [updated] = await tx
+        .update(ingredientsTable)
+        .set({
+          name: body.name,
+          category: body.category,
+          unit: body.unit,
+          stock: String(stockAfter),
+          minimumStock: String(body.minimumStock),
+          averagePrice: body.averagePrice,
+          isBom: body.isBom,
+          updatedAt: new Date(),
+        })
+        .where(eq(ingredientsTable.id, body.id))
+        .returning();
+
+      const delta = stockAfter - stockBefore;
+      if (updated && delta !== 0) {
+        await tx.insert(stockLedgerTable).values({
+          id: crypto.randomUUID(),
+          ingredientId: body.id,
+          source: "owner_stock_correction",
+          referenceId: body.id,
+          stockBefore: String(stockBefore),
+          stockAfter: String(stockAfter),
+          delta: String(delta.toFixed(2)),
+          reason: `Edit stock product dari Settings: ${before.name}`,
+          operatorId: session.user.id,
+          operatorName: session.user.name,
+        });
+      }
+
+      return updated ?? null;
+    });
 
     if (!row) return forbidden("Ingredient tidak ditemukan atau tidak bisa diedit");
     return ok(row);

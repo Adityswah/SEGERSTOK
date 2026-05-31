@@ -1,0 +1,12 @@
+.agents
+.codex-runtime
+.next
+.vercel
+node_modules
+plugins
+*.log
+*.tsbuildinfo
+docs
+*.xlsx
+*.xls
+*.csv

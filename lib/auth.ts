@@ -1,11 +1,10 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { z } from "zod";
 
 import { db } from "@/db";
 import * as schema from "@/db/schema";
 
-const publicSignupRoleSchema = z.enum(["Kasir", "Cheef", "Waiters"]);
+export const allowPublicSignup = process.env.ALLOW_PUBLIC_SIGNUP === "true";
 
 export const auth = betterAuth({
   baseURL: process.env.BETTER_AUTH_URL,
@@ -29,10 +28,13 @@ export const auth = betterAuth({
         type: "string",
         required: false,
         defaultValue: "Kasir",
-        validator: {
-          input: publicSignupRoleSchema,
-        },
-        input: true,
+        input: false,
+      },
+      mustChangePassword: {
+        type: "boolean",
+        required: false,
+        defaultValue: false,
+        input: false,
       },
     },
   },

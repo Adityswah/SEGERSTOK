@@ -2,15 +2,15 @@ import { eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { db } from "@/db";
-import { ingredientsTable, stockTransactionsTable } from "@/db/schema";
+import { ingredientsTable, stockLedgerTable, stockTransactionsTable } from "@/db/schema";
 import { canWriteStock, getRole, requireSession } from "@/lib/api/authz";
-import { forbidden, ok, serverError, unauthorized } from "@/lib/api/responses";
+import { badRequest, forbidden, ok, serverError, unauthorized } from "@/lib/api/responses";
 import { guardMutation, parseJsonBody } from "@/lib/api/security";
 
 const transactionBatchSchema = z.object({
   type: z.enum(["masuk", "keluar"]),
   transactionDate: z.coerce.date().optional(),
-  operatorName: z.string().min(2).max(80),
+  operatorName: z.string().min(2).max(80).optional(),
   clientBatchId: z.string().min(8).max(80),
   rows: z
     .array(
@@ -54,6 +54,19 @@ export async function POST(request: Request) {
           continue;
         }
 
+        const [ingredientBefore] = await tx
+          .select({ stock: ingredientsTable.stock })
+          .from(ingredientsTable)
+          .where(eq(ingredientsTable.id, row.ingredientId))
+          .limit(1);
+
+        if (!ingredientBefore) throw new Error(`Ingredient ${row.ingredientId} tidak ditemukan`);
+
+        const stockBefore = Number(ingredientBefore.stock);
+        if (body.type === "keluar" && stockBefore < row.quantity) {
+          throw new Error(`Stok ingredient ${row.ingredientId} tidak cukup untuk transaksi keluar`);
+        }
+
         const [transaction] = await tx
           .insert(stockTransactionsTable)
           .values({
@@ -65,7 +78,7 @@ export async function POST(request: Request) {
             transactionDate: body.transactionDate ?? new Date(),
             clientRequestId,
             operatorId: session.user.id,
-            operatorName: body.operatorName,
+            operatorName: session.user.name,
             note: row.note,
           })
           .returning();
@@ -73,7 +86,9 @@ export async function POST(request: Request) {
         const stockExpression =
           body.type === "masuk"
             ? sql`${ingredientsTable.stock} + ${String(row.quantity)}`
-            : sql`greatest(${ingredientsTable.stock} - ${String(row.quantity)}, 0)`;
+            : sql`${ingredientsTable.stock} - ${String(row.quantity)}`;
+
+        const stockAfter = body.type === "masuk" ? stockBefore + row.quantity : stockBefore - row.quantity;
 
         await tx
           .update(ingredientsTable)
@@ -82,6 +97,19 @@ export async function POST(request: Request) {
             updatedAt: new Date(),
           })
           .where(eq(ingredientsTable.id, row.ingredientId));
+
+        await tx.insert(stockLedgerTable).values({
+          id: crypto.randomUUID(),
+          ingredientId: row.ingredientId,
+          source: body.type === "masuk" ? "stock_in" : "stock_out",
+          referenceId: transaction.id,
+          stockBefore: String(stockBefore),
+          stockAfter: String(stockAfter),
+          delta: String((stockAfter - stockBefore).toFixed(2)),
+          reason: row.note,
+          operatorId: session.user.id,
+          operatorName: session.user.name,
+        });
 
         rows.push({ row: transaction, skipped: false });
       }
@@ -95,6 +123,10 @@ export async function POST(request: Request) {
       skipped: savedRows.filter((item) => item.skipped).length,
     });
   } catch (error) {
+    if (error instanceof Error && (error.message.includes("tidak cukup") || error.message.includes("tidak ditemukan"))) {
+      return badRequest(error.message);
+    }
+
     return serverError(error);
   }
 }

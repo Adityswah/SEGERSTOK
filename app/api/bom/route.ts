@@ -22,6 +22,15 @@ const bomSchema = z.object({
   items: z.array(bomItemSchema).min(1).max(30),
 });
 
+const bomPatchSchema = bomSchema.extend({
+  id: z.string().min(2),
+  finishedIngredientId: z.string().min(2),
+});
+
+function canManageBom(role: string) {
+  return role === "Owner" || role === "Cheef";
+}
+
 export async function GET() {
   try {
     const session = await requireSession();
@@ -102,7 +111,7 @@ export async function POST(request: Request) {
 
     const session = await requireSession();
     if (!session) return unauthorized();
-    if (!canAccessBom(getRole(session))) return forbidden("Hanya Owner dan Cheef yang bisa membuat BOM");
+    if (!canManageBom(getRole(session))) return forbidden("Hanya Owner dan Cheef yang bisa membuat BOM");
 
     const { data: body, response } = await parseJsonBody(request, bomSchema, 96_000);
     if (response) return response;
@@ -202,6 +211,82 @@ export async function POST(request: Request) {
       yieldUnit: createdRecipe.recipe.yieldUnit,
       totalCost: createdRecipe.recipe.totalCost,
     });
+  } catch (error) {
+    return serverError(error);
+  }
+}
+
+export async function PATCH(request: Request) {
+  try {
+    const guard = guardMutation(request, { keyPrefix: "bom:update", limit: 20, windowMs: 60_000 });
+    if (guard) return guard;
+
+    const session = await requireSession();
+    if (!session) return unauthorized();
+    if (!canManageBom(getRole(session))) return forbidden("Hanya Owner dan Cheef yang bisa edit BOM");
+
+    const { data: body, response } = await parseJsonBody(request, bomPatchSchema, 96_000);
+    if (response) return response;
+
+    const ingredientIds = Array.from(new Set(body.items.map((item) => item.ingredientId)));
+    if (ingredientIds.length !== body.items.length) {
+      return forbidden("Bahan BOM tidak boleh duplikat dalam 1 resep");
+    }
+
+    const sourceIngredients = await db
+      .select({
+        id: ingredientsTable.id,
+        active: ingredientsTable.active,
+        isBom: ingredientsTable.isBom,
+      })
+      .from(ingredientsTable)
+      .where(inArray(ingredientsTable.id, ingredientIds));
+
+    if (sourceIngredients.length !== ingredientIds.length) return forbidden("Ada bahan BOM yang tidak ditemukan");
+    if (sourceIngredients.some((item) => !item.active)) return forbidden("Semua bahan BOM harus aktif");
+    if (sourceIngredients.some((item) => item.isBom)) return forbidden("Bahan penyusun BOM tidak boleh mengambil item BOM lain");
+
+    const totalCost = body.items.reduce((sum, item) => sum + item.totalCost, 0);
+    const unitCost = Math.round(totalCost / body.yieldQuantity);
+
+    await db.transaction(async (tx) => {
+      await tx
+        .update(ingredientsTable)
+        .set({
+          name: body.name,
+          category: body.category,
+          unit: body.unit,
+          minimumStock: String(body.minimumStock),
+          averagePrice: unitCost,
+          isBom: true,
+          updatedAt: new Date(),
+        })
+        .where(eq(ingredientsTable.id, body.finishedIngredientId));
+
+      await tx
+        .update(bomRecipesTable)
+        .set({
+          name: body.name,
+          yieldQuantity: String(body.yieldQuantity),
+          yieldUnit: body.unit,
+          totalCost,
+          updatedAt: new Date(),
+        })
+        .where(eq(bomRecipesTable.id, body.id));
+
+      await tx.delete(bomRecipeItemsTable).where(eq(bomRecipeItemsTable.bomRecipeId, body.id));
+      await tx.insert(bomRecipeItemsTable).values(
+        body.items.map((item) => ({
+          id: crypto.randomUUID(),
+          bomRecipeId: body.id,
+          ingredientId: item.ingredientId,
+          quantity: String(item.quantity),
+          totalCost: item.totalCost,
+        })),
+      );
+    });
+
+    return ok({ id: body.id, updated: true });
   } catch (error) {
     return serverError(error);
   }

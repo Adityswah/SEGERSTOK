@@ -43,6 +43,27 @@
       "when": 1780009200000,
       "tag": "0005_bom_recipes",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1780095600000,
+      "tag": "0006_stock_opname_hybrid",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1780182000000,
+      "tag": "0007_finance_transactions",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1780268400000,
+      "tag": "0008_employee_password_reset",
+      "breakpoints": true
     }
   ]
 }

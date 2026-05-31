@@ -1,6 +1,4 @@
 import { and, desc, eq, gte, ilike, inArray, lt, or, sql } from "drizzle-orm";
-import { createHash } from "node:crypto";
-
 import { db } from "@/db";
 import {
   aiBuyRecommendationsTable,
@@ -9,10 +7,8 @@ import {
   aiSourceSignalsTable,
   aiWeeklyStockProjectionsTable,
   ingredientsTable,
-  pricePredictionsTable,
   stockTransactionsTable,
 } from "@/db/schema";
-import { priceForecast, priceNews } from "@/lib/data";
 
 type RiskLevel = "Rendah" | "Sedang" | "Tinggi";
 type RecommendationAction = "beli-sekarang" | "beli-bertahap" | "tunda-beli";
@@ -30,17 +26,6 @@ type PipelineMetrics = {
   purgedRecommendations: number;
 };
 
-type FeedSignal = {
-  sourceType: "government" | "news";
-  sourceName: string;
-  sourceUrl: string;
-  headline: string;
-  summary: string;
-  commodityTags: string;
-  publishedAt: Date;
-  signalScore: number;
-};
-
 type MaterialRiskRow = {
   itemName: string;
   ingredientId: string | null;
@@ -52,14 +37,6 @@ type MaterialRiskRow = {
   predictedPrice: number;
   sourceCount: number;
   reason: string;
-};
-
-type PricePredictionInput = {
-  ingredientId: string | null;
-  itemName: string;
-  currentPrice: number;
-  predictedPrice: number;
-  changePercent: string | number;
 };
 
 type ProjectionRow = {
@@ -108,251 +85,6 @@ function toNumber(value: unknown) {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
-}
-
-function parseIndonesianDate(raw: string) {
-  const normalized = raw.trim().toLowerCase();
-  const months: Record<string, number> = {
-    januari: 0,
-    februari: 1,
-    maret: 2,
-    april: 3,
-    mei: 4,
-    juni: 5,
-    juli: 6,
-    agustus: 7,
-    september: 8,
-    oktober: 9,
-    november: 10,
-    desember: 11,
-  };
-
-  const match = normalized.match(/(\d{1,2})\s+([a-z]+)\s+(\d{4})/);
-  if (!match) return null;
-
-  const day = Number(match[1]);
-  const month = months[match[2]];
-  const year = Number(match[3]);
-  if (month === undefined) return null;
-
-  const date = new Date(Date.UTC(year, month, day, 5, 0, 0));
-  return Number.isNaN(date.getTime()) ? null : date;
-}
-
-function riskFromScore(score: number): RiskLevel {
-  if (score >= 70) return "Tinggi";
-  if (score >= 45) return "Sedang";
-  return "Rendah";
-}
-
-function normalizeName(text: string) {
-  return text.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
-}
-
-function hashSignal(signal: FeedSignal) {
-  const value = `${signal.sourceName}|${signal.sourceUrl}|${signal.headline}|${signal.publishedAt.toISOString()}`;
-  return createHash("sha256").update(value).digest("hex");
-}
-
-function pickSignalScore(text: string) {
-  const normalized = normalizeName(text);
-  let score = 40;
-  if (normalized.includes("naik") || normalized.includes("melonjak") || normalized.includes("meroket")) score += 22;
-  if (normalized.includes("pasokan") || normalized.includes("gagal panen") || normalized.includes("cuaca")) score += 12;
-  if (normalized.includes("impor") || normalized.includes("distribusi")) score += 10;
-  return clamp(score, 20, 95);
-}
-
-function parseRssItems(rawXml: string, sourceUrl: string): FeedSignal[] {
-  const sourceName = new URL(sourceUrl).hostname.replace(/^www\./, "");
-  const itemMatches = [...rawXml.matchAll(/<item>([\s\S]*?)<\/item>/g)].slice(0, 25);
-  const signals: FeedSignal[] = [];
-  for (const match of itemMatches) {
-      const block = match[1] ?? "";
-      const title = block.match(/<title>([\s\S]*?)<\/title>/)?.[1]?.replace(/<!\[CDATA\[|\]\]>/g, "").trim() ?? "";
-      const link = block.match(/<link>([\s\S]*?)<\/link>/)?.[1]?.trim() ?? sourceUrl;
-      const description =
-        block.match(/<description>([\s\S]*?)<\/description>/)?.[1]?.replace(/<!\[CDATA\[|\]\]>/g, "").trim() ?? "";
-      const pubDateRaw = block.match(/<pubDate>([\s\S]*?)<\/pubDate>/)?.[1]?.trim();
-      if (!title) continue;
-      const publishedAt = pubDateRaw ? new Date(pubDateRaw) : new Date();
-      signals.push({
-        sourceType: "news" as const,
-        sourceName,
-        sourceUrl: link,
-        headline: title,
-        summary: description || title,
-        commodityTags: "",
-        publishedAt: Number.isNaN(publishedAt.getTime()) ? new Date() : publishedAt,
-        signalScore: pickSignalScore(`${title} ${description}`),
-      });
-  }
-  return signals;
-}
-
-async function loadExternalFeedSignals(): Promise<{ signals: FeedSignal[]; failedFeeds: number }> {
-  const feedUrls = (process.env.AI_NEWS_FEED_URLS ?? "")
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
-
-  if (!feedUrls.length) return { signals: [], failedFeeds: 0 };
-
-  let failedFeeds = 0;
-  const feeds = await Promise.all(
-    feedUrls.map(async (feedUrl) => {
-      try {
-        const response = await fetch(feedUrl, { cache: "no-store" });
-        if (!response.ok) throw new Error(`Feed ${feedUrl} failed with ${response.status}`);
-        const rawXml = await response.text();
-        return parseRssItems(rawXml, feedUrl);
-      } catch {
-        failedFeeds += 1;
-        return [];
-      }
-    }),
-  );
-
-  return { signals: feeds.flat(), failedFeeds };
-}
-
-function buildStaticSignals(): FeedSignal[] {
-  return priceNews.map((news) => ({
-    sourceType: news.source.toLowerCase().includes("pihps") ? "government" : "news",
-    sourceName: news.source,
-    sourceUrl: news.url,
-    headline: news.title,
-    summary: news.summary,
-    commodityTags: news.commodity,
-    publishedAt: parseIndonesianDate(news.date) ?? new Date(),
-    signalScore: pickSignalScore(`${news.title} ${news.summary}`),
-  }));
-}
-
-async function persistSignals(signals: FeedSignal[]) {
-  if (!signals.length) return 0;
-
-  let inserted = 0;
-  for (const signal of signals) {
-    const contentHash = hashSignal(signal);
-    const [row] = await db
-      .insert(aiSourceSignalsTable)
-      .values({
-        id: crypto.randomUUID(),
-        sourceType: signal.sourceType,
-        sourceName: signal.sourceName,
-        sourceUrl: signal.sourceUrl,
-        headline: signal.headline.slice(0, 280),
-        summary: signal.summary,
-        commodityTags: signal.commodityTags.slice(0, 800),
-        signalScore: signal.signalScore,
-        publishedAt: signal.publishedAt,
-        contentHash,
-      })
-      .onConflictDoNothing({
-        target: aiSourceSignalsTable.contentHash,
-      })
-      .returning({ id: aiSourceSignalsTable.id });
-
-    if (row?.id) inserted += 1;
-  }
-
-  return inserted;
-}
-
-function buildMaterialRisks(
-  ingredients: Array<typeof ingredientsTable.$inferSelect>,
-  predictions: PricePredictionInput[],
-  recentSignals: Array<typeof aiSourceSignalsTable.$inferSelect>,
-  signalDate: string,
-) {
-  const ingredientsByNormalized = new Map(
-    ingredients.map((item) => [normalizeName(item.name), item.id] as const),
-  );
-
-  return predictions.map((prediction): MaterialRiskRow => {
-    const normalizedItem = normalizeName(prediction.itemName);
-    const predictionPercent = toNumber(prediction.changePercent);
-    const signalHits = recentSignals.filter((signal) => {
-      const haystack = normalizeName(`${signal.headline} ${signal.summary} ${signal.commodityTags}`);
-      return normalizedItem.split(" ").some((word) => word.length > 2 && haystack.includes(word));
-    });
-
-    const signalAverage =
-      signalHits.length > 0
-        ? signalHits.reduce((sum, signal) => sum + signal.signalScore, 0) / signalHits.length
-        : 45;
-    const baseScore = toNumber(predictionPercent) * 6.5 + signalAverage * 0.55;
-    const riskScore = Math.round(clamp(baseScore, 0, 100));
-    const risk = riskFromScore(riskScore);
-    const predictedPrice =
-      prediction.predictedPrice > 0
-        ? prediction.predictedPrice
-        : Math.round(prediction.currentPrice * (1 + clamp(predictionPercent, 0, 25) / 100));
-
-    return {
-      itemName: prediction.itemName,
-      ingredientId: ingredientsByNormalized.get(normalizedItem) ?? prediction.ingredientId ?? null,
-      signalDate,
-      riskScore,
-      risk,
-      trendPercent: Number(predictionPercent.toFixed(2)),
-      currentPrice: prediction.currentPrice,
-      predictedPrice,
-      sourceCount: signalHits.length,
-      reason: signalHits.length
-        ? `${signalHits.length} sinyal berita/pemerintah relevan dalam 7 hari terakhir`
-        : "Belum ada sinyal kuat; gunakan baseline prediksi harga",
-    };
-  });
-}
-
-function buildFallbackPredictions(): PricePredictionInput[] {
-  return priceForecast.map((item) => ({
-    ingredientId: null,
-    itemName: item.item,
-    currentPrice: item.current,
-    predictedPrice: item.next,
-    changePercent: item.change.replace("%", "").replace("+", ""),
-  }));
-}
-
-async function persistMaterialRisks(risks: MaterialRiskRow[]) {
-  let affected = 0;
-  for (const risk of risks) {
-    const [row] = await db
-      .insert(aiMaterialRiskDailyTable)
-      .values({
-        id: crypto.randomUUID(),
-        ingredientId: risk.ingredientId,
-        itemName: risk.itemName,
-        signalDate: risk.signalDate,
-        riskScore: risk.riskScore,
-        risk: risk.risk,
-        trendPercent: risk.trendPercent.toFixed(2),
-        currentPrice: risk.currentPrice,
-        predictedPrice: risk.predictedPrice,
-        sourceCount: risk.sourceCount,
-        reason: risk.reason,
-      })
-      .onConflictDoUpdate({
-        target: [aiMaterialRiskDailyTable.itemName, aiMaterialRiskDailyTable.signalDate],
-        set: {
-          ingredientId: risk.ingredientId,
-          riskScore: risk.riskScore,
-          risk: risk.risk,
-          trendPercent: risk.trendPercent.toFixed(2),
-          currentPrice: risk.currentPrice,
-          predictedPrice: risk.predictedPrice,
-          sourceCount: risk.sourceCount,
-          reason: risk.reason,
-          createdAt: new Date(),
-        },
-      })
-      .returning({ id: aiMaterialRiskDailyTable.id });
-    if (row?.id) affected += 1;
-  }
-  return affected;
 }
 
 function buildWeeklyProjections(
@@ -477,9 +209,9 @@ function buildRecommendations(
       priorityScore,
       explanation:
         action === "beli-sekarang"
-          ? "Stok cover rendah dan risiko naik tinggi; prioritas beli hari ini."
+          ? "Stok cover rendah; prioritas beli hari ini."
           : action === "beli-bertahap"
-            ? "Stok masih aman terbatas; lakukan pembelian bertahap untuk mengurangi risiko lonjakan harga."
+            ? "Stok masih aman terbatas; lakukan pembelian bertahap untuk mengurangi risiko stok kosong."
             : "Stok dan proyeksi masih aman; pembelian dapat ditunda sambil monitoring.",
     };
   });
@@ -568,32 +300,10 @@ export async function runAiPipeline() {
     const weekStart = nowDateKey(weekStartDate);
     const weekEnd = nowDateKey(weekEndDate);
 
-    const [{ signals: externalSignals, failedFeeds }, ingredients, predictions] = await Promise.all([
-      loadExternalFeedSignals(),
-      db.select().from(ingredientsTable).where(sql`${ingredientsTable.active} = true`),
-      db.select().from(pricePredictionsTable).orderBy(desc(pricePredictionsTable.createdAt)).limit(250),
-    ]);
+    const ingredients = await db.select().from(ingredientsTable).where(sql`${ingredientsTable.active} = true`);
 
-    metrics.failedFeeds = failedFeeds;
-    const staticSignals = buildStaticSignals();
-    metrics.ingestedSignals = await persistSignals([...staticSignals, ...externalSignals]);
-
-    const recentSignals = await db
-      .select()
-      .from(aiSourceSignalsTable)
-      .where(gte(aiSourceSignalsTable.publishedAt, new Date(Date.now() - 7 * DAY_IN_MS)))
-      .orderBy(desc(aiSourceSignalsTable.publishedAt))
-      .limit(400);
-
-    const predictionInputs = predictions.length > 0 ? predictions : buildFallbackPredictions();
-    const materialRisks = buildMaterialRisks(ingredients, predictionInputs, recentSignals, todayKey);
-    metrics.generatedRisks = await persistMaterialRisks(materialRisks);
-
-    const riskMap = new Map(
-      materialRisks
-        .filter((item) => item.ingredientId)
-        .map((item) => [item.ingredientId as string, item] as const),
-    );
+    // Pipeline dibuat ringan: AI hanya memakai data internal untuk proyeksi mingguan dan rekomendasi waktu beli.
+    const riskMap = new Map<string, MaterialRiskRow>();
 
     const usageRows = await db
       .select()
@@ -655,7 +365,7 @@ export async function runAiPipeline() {
     metrics.purgedProjections = purgedProjections.length;
     metrics.purgedRecommendations = purgedRecommendations.length;
 
-    const status: "success" | "partial" = metrics.failedFeeds > 0 ? "partial" : "success";
+    const status: "success" | "partial" = "success";
     await recordRunFinish(runId, status, metrics);
 
     return { status, metrics };
@@ -672,13 +382,7 @@ export async function runAiPipeline() {
 
 export async function readAiSummaryForOwner() {
   const todayKey = nowDateKey();
-  const [risks, projections, recommendations, latestRun] = await Promise.all([
-    db
-      .select()
-      .from(aiMaterialRiskDailyTable)
-      .where(eq(aiMaterialRiskDailyTable.signalDate, todayKey))
-      .orderBy(desc(aiMaterialRiskDailyTable.riskScore))
-      .limit(12),
+  const [projections, recommendations, latestRun] = await Promise.all([
     db
       .select()
       .from(aiWeeklyStockProjectionsTable)
@@ -697,7 +401,6 @@ export async function readAiSummaryForOwner() {
     new Set([
       ...recommendations.map((item) => item.ingredientId),
       ...projections.map((item) => item.ingredientId),
-      ...risks.map((item) => item.ingredientId).filter((id): id is string => Boolean(id)),
     ]),
   );
   const ingredients =
@@ -717,7 +420,7 @@ export async function readAiSummaryForOwner() {
   return {
     asOf: todayKey,
     latestRun: latestRun[0] ?? null,
-    risks,
+    risks: [],
     projections: projections.map((item) => ({
       ...item,
       ingredientName: ingredientById.get(item.ingredientId)?.name ?? item.ingredientId,

@@ -3,8 +3,8 @@ import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 
-import { ingredientsTable, pricePredictionsTable } from "@/db/schema";
-import { ingredients, priceForecast, priceNews } from "@/lib/data";
+import { ingredientsTable } from "@/db/schema";
+import { ingredients } from "@/lib/data";
 
 config({ path: ".env.local" });
 
@@ -24,30 +24,6 @@ function findErrorCode(error: unknown): string | undefined {
     return maybeError.errors.map(findErrorCode).find(Boolean);
   }
   return undefined;
-}
-
-function parseChangePercent(change: string) {
-  return Number(change.replace("%", "").replace("+", ""));
-}
-
-function predictionDate(date?: string) {
-  if (!date) return new Date("2026-05-17T00:00:00+07:00");
-  return new Date(`${date}T00:00:00+07:00`);
-}
-
-function findPredictionSource(itemName: string, sourceName: string) {
-  const sourceCandidates = sourceName.split(",").map((source) => source.trim());
-  return (
-    priceNews.find(
-      (news) =>
-        sourceCandidates.includes(news.source) &&
-        [news.title, news.commodity, news.summary].some((text) =>
-          text.toLowerCase().includes(itemName.toLowerCase()),
-        ),
-    ) ??
-    priceNews.find((news) => sourceCandidates.includes(news.source)) ??
-    priceNews[0]
-  );
 }
 
 async function seedIngredients() {
@@ -80,57 +56,13 @@ async function seedIngredients() {
     });
 }
 
-async function seedPricePredictions() {
-  const ingredientRows = await db.select().from(ingredientsTable);
-  const ingredientIdByName = new Map(ingredientRows.map((item) => [item.name.toLowerCase(), item.id]));
-
-  for (const item of priceForecast) {
-    const source = findPredictionSource(item.item, item.source);
-    const id = `prediction-${item.item.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
-
-    await db
-      .insert(pricePredictionsTable)
-      .values({
-        id,
-        ingredientId: ingredientIdByName.get(item.item.toLowerCase()),
-        itemName: item.item,
-        currentPrice: item.current,
-        predictedPrice: item.next,
-        changePercent: String(parseChangePercent(item.change)),
-        risk: item.risk as "Rendah" | "Sedang" | "Tinggi",
-        sourceName: item.source,
-        sourceUrl: source.url,
-        summary: source.summary,
-        publishedAt: predictionDate(item.date),
-      })
-      .onConflictDoUpdate({
-        target: pricePredictionsTable.id,
-        set: {
-          ingredientId: ingredientIdByName.get(item.item.toLowerCase()),
-          itemName: item.item,
-          currentPrice: item.current,
-          predictedPrice: item.next,
-          changePercent: String(parseChangePercent(item.change)),
-          risk: item.risk as "Rendah" | "Sedang" | "Tinggi",
-          sourceName: item.source,
-          sourceUrl: source.url,
-          summary: source.summary,
-          publishedAt: predictionDate(item.date),
-        },
-      });
-  }
-}
-
 async function main() {
   await db.execute(sql`select 1`);
   await seedIngredients();
-  await seedPricePredictions();
 
   const [ingredientCount] = await db.select().from(ingredientsTable);
-  const predictionRows = await db.select().from(pricePredictionsTable);
 
   console.log(`Seed complete: ${ingredients.length} ingredients prepared.`);
-  console.log(`Seed complete: ${predictionRows.length} price predictions available.`);
 
   if (!ingredientCount) {
     throw new Error("Seed sanity check failed: ingredients table is empty.");

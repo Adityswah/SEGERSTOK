@@ -7,7 +7,7 @@ import { getRole, requireSession } from "@/lib/api/authz";
 import { created, forbidden, ok, serverError, unauthorized } from "@/lib/api/responses";
 import { guardMutation, parseJsonBody } from "@/lib/api/security";
 
-const masterTypeSchema = z.enum(["unit", "category"]);
+const masterTypeSchema = z.enum(["unit", "category", "finance_non_stock_subcategory"]);
 const masterOptionSchema = z.object({
   type: masterTypeSchema,
   value: z.string().trim().min(1).max(160),
@@ -37,6 +37,9 @@ export async function GET() {
 
     const units = new Set(options.filter((item) => item.type === "unit").map((item) => item.value));
     const categories = new Set(options.filter((item) => item.type === "category").map((item) => item.value));
+    const financeNonStockSubcategories = new Set(
+      options.filter((item) => item.type === "finance_non_stock_subcategory").map((item) => item.value),
+    );
     for (const ingredient of ingredients) {
       units.add(ingredient.unit);
       categories.add(ingredient.category);
@@ -45,6 +48,7 @@ export async function GET() {
     return ok({
       units: Array.from(units).sort(),
       categories: Array.from(categories).sort(),
+      financeNonStockSubcategories: Array.from(financeNonStockSubcategories).sort(),
     });
   } catch (error) {
     return serverError(error);
@@ -118,11 +122,14 @@ export async function PATCH(request: Request) {
           });
       }
 
-      const ingredientRows = await tx
-        .update(ingredientsTable)
-        .set({ [body.type]: body.nextValue, updatedAt: new Date() })
-        .where(eq(ingredientsTable[body.type], body.previousValue))
-        .returning({ id: ingredientsTable.id });
+      const ingredientRows =
+        body.type === "finance_non_stock_subcategory"
+          ? []
+          : await tx
+              .update(ingredientsTable)
+              .set({ [body.type]: body.nextValue, updatedAt: new Date() })
+              .where(eq(ingredientsTable[body.type], body.previousValue))
+              .returning({ id: ingredientsTable.id });
 
       return { optionsUpdated: optionRows.length, ingredientsUpdated: ingredientRows.length };
     });

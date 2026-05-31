@@ -12,12 +12,6 @@ import { cn } from "@/lib/utils";
 type AiSummaryResponse = {
   asOf: string;
   latestRun: { status: "success" | "partial" | "failed"; startedAt: string } | null;
-  risks: Array<{
-    id: string;
-    itemName: string;
-    risk: "Rendah" | "Sedang" | "Tinggi";
-    riskScore: number;
-  }>;
   recommendations: Array<{
     id: string;
     ingredientName: string;
@@ -94,7 +88,7 @@ export function OwnerAiBot({
         {
           id: crypto.randomUUID(),
           role: "assistant",
-          text: "Pipeline AI berhasil di-refresh. Data risiko, proyeksi, dan rekomendasi sudah diperbarui.",
+          text: "Pipeline AI berhasil di-refresh. Data proyeksi dan rekomendasi pembelian sudah diperbarui.",
           createdAt: new Date().toISOString(),
         },
       ]);

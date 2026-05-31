@@ -29,7 +29,9 @@ function getExpectedOrigin(request: Request) {
 
 export function guardSameOrigin(request: Request) {
   const origin = request.headers.get("origin");
-  if (!origin) return null;
+  if (!origin) {
+    return process.env.NODE_ENV === "production" ? forbidden("Origin wajib untuk request mutasi") : null;
+  }
 
   const expectedOrigin = getExpectedOrigin(request);
   if (!expectedOrigin) return forbidden("Origin tidak valid");

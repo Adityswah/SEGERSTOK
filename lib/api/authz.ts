@@ -34,3 +34,11 @@ export function canWriteActual(role: Role) {
 export function canAccessBom(role: Role) {
   return ["Owner", "Cheef"].includes(role);
 }
+
+export function canInputFinance(role: Role) {
+  return ["Owner", "Kasir"].includes(role);
+}
+
+export function canReadFinance(role: Role) {
+  return role === "Owner";
+}

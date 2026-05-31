@@ -76,7 +76,6 @@ const INTERNAL_KEYWORDS = [
   "sisa",
   "stok",
   "stock",
-  "supplier",
   "transaksi",
 ];
 
@@ -208,9 +207,6 @@ function buildInternalAnswer(cleanMessage: string, summary: AiSummary, relatedIn
   const wantsBuyTiming = /(kapan|waktu|rekomendasi|beli)/.test(lower);
   const wantsProjection = /(minggu|proyeksi|habis|cukup)/.test(lower);
 
-  const matchedRisks = summary.risks
-    .filter((item) => matchesTerms(item.itemName, terms) || (item.ingredientId ? ingredientIds.has(item.ingredientId) : false))
-    .slice(0, 3);
   const matchedProjections = summary.projections
     .filter((item) => ingredientIds.has(item.ingredientId) || matchesTerms(item.ingredientName, terms))
     .slice(0, 3);
@@ -232,14 +228,9 @@ function buildInternalAnswer(cleanMessage: string, summary: AiSummary, relatedIn
   }
 
   if (wantsPrice) {
-    const mainRisk = matchedRisks[0];
-    if (mainRisk) {
-      lines.push(
-        `Prediksi ${mainRisk.itemName}: ${formatRupiah(mainRisk.predictedPrice)}. Risiko ${mainRisk.risk} (${mainRisk.riskScore}/100, ${formatPercent(mainRisk.trendPercent)}).`,
-      );
-    } else {
-      lines.push(`Saya belum punya prediksi harga terbaru untuk "${materialLabel}".`);
-    }
+    lines.push(
+      "Prediksi harga berbasis berita nasional sudah dinonaktifkan agar aplikasi lebih ringan. Saya tetap bisa bantu dari data internal: rekomendasi waktu beli dan proyeksi kebutuhan stok mingguan.",
+    );
   }
 
   if (wantsBuyTiming) {
@@ -283,11 +274,11 @@ function buildInternalAnswer(cleanMessage: string, summary: AiSummary, relatedIn
     lines.push(
       urgentBuy.length
         ? `Prioritas hari ini: ${urgentBuy.map((item) => item.ingredientName).join(", ")}.`
-        : `Belum ada bahan yang wajib dibeli sekarang. Risiko harga tinggi: ${summary.risks.filter((item) => item.risk === "Tinggi").length} bahan.`,
+        : "Belum ada bahan yang wajib dibeli sekarang. Pantau stok minimum dan jadwal pembelian bertahap.",
     );
   }
 
-  lines.push(`Data: internal + AI ${summary.asOf}.`);
+  lines.push(`Data: internal AI ${summary.asOf}.`);
   return lines.join("\n");
 }
 
@@ -317,7 +308,7 @@ function buildClarification(cleanMessage: string) {
     return "Saya perlu memperjelas 1 hal dulu: bahan apa yang Anda maksud? Contoh: ayam, cabai rawit, beras, atau minyak goreng.";
   }
 
-  return "Saya perlu memperjelas 1 hal dulu: yang ingin Anda cek itu data stok, prediksi harga, rekomendasi beli, atau pertanyaan umum?";
+  return "Saya perlu memperjelas 1 hal dulu: yang ingin Anda cek itu data stok, proyeksi stok, rekomendasi beli, atau pertanyaan umum?";
 }
 
 function qualityGate(answer: string) {

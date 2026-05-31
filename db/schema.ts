@@ -15,7 +15,26 @@ import {
 
 export const roleEnum = pgEnum("role", ["Owner", "Kasir", "Cheef", "Waiters"]);
 export const stockTransactionTypeEnum = pgEnum("stock_transaction_type", ["masuk", "keluar"]);
+export const financeTransactionTypeEnum = pgEnum("finance_transaction_type", ["pendapatan", "pengeluaran"]);
+export const financeFundMethodEnum = pgEnum("finance_fund_method", ["cash", "bank"]);
+export const financeCategoryEnum = pgEnum("finance_category", ["keperluan_stock", "non_keperluan_stock"]);
 export const predictionRiskEnum = pgEnum("prediction_risk", ["Rendah", "Sedang", "Tinggi"]);
+export const opnameSessionStatusEnum = pgEnum("opname_session_status", [
+  "draft",
+  "staff_input",
+  "owner_review",
+  "finalized",
+]);
+export const opnameInputTypeEnum = pgEnum("opname_input_type", ["primary", "secondary"]);
+export const ownerEvaluationSeverityEnum = pgEnum("owner_evaluation_severity", ["low", "medium", "high"]);
+export const ownerEvaluationStatusEnum = pgEnum("owner_evaluation_status", ["open", "done"]);
+export const stockLedgerSourceEnum = pgEnum("stock_ledger_source", [
+  "stock_in",
+  "stock_out",
+  "bom_production",
+  "monthly_opname_final",
+  "owner_stock_correction",
+]);
 export const aiRecommendationActionEnum = pgEnum("ai_recommendation_action", [
   "beli-sekarang",
   "beli-bertahap",
@@ -30,6 +49,7 @@ export const user = pgTable("user", {
   emailVerified: boolean("email_verified").notNull().default(false),
   image: text("image"),
   role: roleEnum("role").notNull().default("Kasir"),
+  mustChangePassword: boolean("must_change_password").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -200,7 +220,7 @@ export const ingredientMasterOptionsTable = pgTable(
   "ingredient_master_options",
   {
     id: text("id").primaryKey(),
-    type: varchar("type", { length: 24 }).notNull(),
+    type: varchar("type", { length: 48 }).notNull(),
     value: varchar("value", { length: 160 }).notNull(),
     active: boolean("active").notNull().default(true),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -221,6 +241,7 @@ export const stockTransactionsTable = pgTable(
     type: stockTransactionTypeEnum("type").notNull(),
     quantity: numeric("quantity", { precision: 12, scale: 2 }).notNull(),
     unitPrice: integer("unit_price"),
+    financeTransactionId: text("finance_transaction_id"),
     transactionDate: timestamp("transaction_date", { withTimezone: true }).notNull().defaultNow(),
     clientRequestId: varchar("client_request_id", { length: 120 }),
     operatorId: text("operator_id").references(() => user.id, { onDelete: "set null" }),
@@ -230,8 +251,43 @@ export const stockTransactionsTable = pgTable(
   },
   (table) => ({
     ingredientIdx: index("stock_transactions_ingredient_idx").on(table.ingredientId),
+    financeTransactionIdx: index("stock_transactions_finance_transaction_idx").on(table.financeTransactionId),
     dateIdx: index("stock_transactions_date_idx").on(table.transactionDate),
     clientRequestIdx: uniqueIndex("stock_transactions_client_request_id_idx").on(table.clientRequestId),
+  }),
+);
+
+export const financeTransactionsTable = pgTable(
+  "finance_transactions",
+  {
+    id: text("id").primaryKey(),
+    type: financeTransactionTypeEnum("type").notNull(),
+    fundMethod: financeFundMethodEnum("fund_method").notNull(),
+    category: financeCategoryEnum("category").notNull(),
+    subcategory: varchar("subcategory", { length: 160 }).notNull(),
+    ingredientId: text("ingredient_id").references(() => ingredientsTable.id, { onDelete: "restrict" }),
+    itemName: varchar("item_name", { length: 160 }).notNull(),
+    quantity: numeric("quantity", { precision: 12, scale: 2 }).notNull(),
+    unit: varchar("unit", { length: 32 }).notNull(),
+    unitPrice: integer("unit_price").notNull(),
+    totalAmount: integer("total_amount").notNull(),
+    transactionDate: timestamp("transaction_date", { withTimezone: true }).notNull().defaultNow(),
+    note: text("note"),
+    attachmentName: varchar("attachment_name", { length: 240 }),
+    linkedStockTransactionId: text("linked_stock_transaction_id"),
+    operatorId: text("operator_id").references(() => user.id, { onDelete: "set null" }),
+    operatorName: varchar("operator_name", { length: 80 }).notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    dateIdx: index("finance_transactions_date_idx").on(table.transactionDate),
+    typeIdx: index("finance_transactions_type_idx").on(table.type),
+    fundMethodIdx: index("finance_transactions_fund_method_idx").on(table.fundMethod),
+    categoryIdx: index("finance_transactions_category_idx").on(table.category),
+    ingredientIdx: index("finance_transactions_ingredient_idx").on(table.ingredientId),
+    operatorIdx: index("finance_transactions_operator_idx").on(table.operatorId),
   }),
 );
 
@@ -268,6 +324,135 @@ export const stockOpnameDetailsTable = pgTable(
       table.opnameId,
       table.ingredientId,
     ),
+  }),
+);
+
+export const stockOpnameSessionsTable = pgTable(
+  "stock_opname_sessions",
+  {
+    id: text("id").primaryKey(),
+    opnameDate: timestamp("opname_date", { withTimezone: true }).notNull(),
+    status: opnameSessionStatusEnum("status").notNull().default("draft"),
+    createdById: text("created_by_id").references(() => user.id, { onDelete: "set null" }),
+    createdByName: varchar("created_by_name", { length: 80 }).notNull(),
+    finalizedById: text("finalized_by_id").references(() => user.id, { onDelete: "set null" }),
+    finalizedByName: varchar("finalized_by_name", { length: 80 }),
+    finalizedAt: timestamp("finalized_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    opnameDateIdx: index("stock_opname_sessions_date_idx").on(table.opnameDate),
+  }),
+);
+
+export const stockOpnameItemSummariesTable = pgTable(
+  "stock_opname_item_summaries",
+  {
+    id: text("id").primaryKey(),
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => stockOpnameSessionsTable.id, { onDelete: "cascade" }),
+    ingredientId: text("ingredient_id")
+      .notNull()
+      .references(() => ingredientsTable.id, { onDelete: "restrict" }),
+    ingredientNameSnapshot: varchar("ingredient_name_snapshot", { length: 160 }).notNull(),
+    categorySnapshot: varchar("category_snapshot", { length: 160 }).notNull(),
+    unitSnapshot: varchar("unit_snapshot", { length: 32 }).notNull(),
+    systemStockBefore: numeric("system_stock_before", { precision: 12, scale: 2 }).notNull(),
+    totalRoleActual: numeric("total_role_actual", { precision: 12, scale: 2 }),
+    finalActual: numeric("final_actual", { precision: 12, scale: 2 }),
+    varianceQty: numeric("variance_qty", { precision: 12, scale: 2 }),
+    variancePercent: numeric("variance_percent", { precision: 8, scale: 2 }),
+    estimatedVarianceValue: integer("estimated_variance_value").notNull().default(0),
+    ownerFinalNote: text("owner_final_note"),
+    needsOwnerReview: boolean("needs_owner_review").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    sessionIngredientIdx: uniqueIndex("stock_opname_item_summaries_session_ingredient_idx").on(
+      table.sessionId,
+      table.ingredientId,
+    ),
+    sessionIdx: index("stock_opname_item_summaries_session_idx").on(table.sessionId),
+  }),
+);
+
+export const stockOpnameRoleInputsTable = pgTable(
+  "stock_opname_role_inputs",
+  {
+    id: text("id").primaryKey(),
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => stockOpnameSessionsTable.id, { onDelete: "cascade" }),
+    ingredientId: text("ingredient_id")
+      .notNull()
+      .references(() => ingredientsTable.id, { onDelete: "restrict" }),
+    role: roleEnum("role").notNull(),
+    areaName: varchar("area_name", { length: 120 }).notNull(),
+    inputType: opnameInputTypeEnum("input_type").notNull().default("primary"),
+    actualQty: numeric("actual_qty", { precision: 12, scale: 2 }).notNull(),
+    note: text("note"),
+    inputById: text("input_by_id").references(() => user.id, { onDelete: "set null" }),
+    inputByName: varchar("input_by_name", { length: 80 }).notNull(),
+    inputAt: timestamp("input_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    sessionIngredientRoleIdx: uniqueIndex("stock_opname_role_inputs_session_ingredient_role_idx").on(
+      table.sessionId,
+      table.ingredientId,
+      table.role,
+    ),
+    sessionIdx: index("stock_opname_role_inputs_session_idx").on(table.sessionId),
+  }),
+);
+
+export const ownerEvaluationsTable = pgTable(
+  "owner_evaluations",
+  {
+    id: text("id").primaryKey(),
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => stockOpnameSessionsTable.id, { onDelete: "cascade" }),
+    ingredientId: text("ingredient_id").references(() => ingredientsTable.id, { onDelete: "set null" }),
+    severity: ownerEvaluationSeverityEnum("severity").notNull().default("low"),
+    suspectedCause: varchar("suspected_cause", { length: 240 }).notNull(),
+    ownerNote: text("owner_note").notNull(),
+    actionItem: text("action_item").notNull(),
+    dueDate: date("due_date"),
+    status: ownerEvaluationStatusEnum("status").notNull().default("open"),
+    createdById: text("created_by_id").references(() => user.id, { onDelete: "set null" }),
+    createdByName: varchar("created_by_name", { length: 80 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    sessionIdx: index("owner_evaluations_session_idx").on(table.sessionId),
+  }),
+);
+
+export const stockLedgerTable = pgTable(
+  "stock_ledger",
+  {
+    id: text("id").primaryKey(),
+    ingredientId: text("ingredient_id")
+      .notNull()
+      .references(() => ingredientsTable.id, { onDelete: "restrict" }),
+    source: stockLedgerSourceEnum("source").notNull(),
+    referenceId: text("reference_id"),
+    stockBefore: numeric("stock_before", { precision: 12, scale: 2 }).notNull(),
+    stockAfter: numeric("stock_after", { precision: 12, scale: 2 }).notNull(),
+    delta: numeric("delta", { precision: 12, scale: 2 }).notNull(),
+    reason: text("reason"),
+    operatorId: text("operator_id").references(() => user.id, { onDelete: "set null" }),
+    operatorName: varchar("operator_name", { length: 80 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    ingredientIdx: index("stock_ledger_ingredient_idx").on(table.ingredientId),
+    sourceIdx: index("stock_ledger_source_idx").on(table.source),
+    createdAtIdx: index("stock_ledger_created_at_idx").on(table.createdAt),
   }),
 );
 
@@ -430,6 +615,9 @@ export const aiBotLogsTable = pgTable(
 export const ingredientsRelations = relations(ingredientsTable, ({ many }) => ({
   transactions: many(stockTransactionsTable),
   opnameDetails: many(stockOpnameDetailsTable),
+  opnameItemSummaries: many(stockOpnameItemSummariesTable),
+  opnameRoleInputs: many(stockOpnameRoleInputsTable),
+  stockLedger: many(stockLedgerTable),
   predictions: many(pricePredictionsTable),
   bomRecipes: many(bomRecipeItemsTable),
   finishedBomRecipes: many(bomRecipesTable),
@@ -510,8 +698,14 @@ export const schema = {
   bomProductionRunsTable,
   bomProductionRunItemsTable,
   stockTransactionsTable,
+  financeTransactionsTable,
   stockOpnameTable,
   stockOpnameDetailsTable,
+  stockOpnameSessionsTable,
+  stockOpnameItemSummariesTable,
+  stockOpnameRoleInputsTable,
+  ownerEvaluationsTable,
+  stockLedgerTable,
   pricePredictionsTable,
   aiSourceSignalsTable,
   aiMaterialRiskDailyTable,
