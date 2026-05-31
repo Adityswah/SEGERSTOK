@@ -4,7 +4,6 @@ import { z } from "zod";
 import { db } from "@/db";
 import {
   financeTransactionsTable,
-  ingredientMasterOptionsTable,
   ingredientsTable,
   stockLedgerTable,
   stockTransactionsTable,
@@ -84,7 +83,12 @@ export async function POST(request: Request) {
 
     const category: "keperluan_stock" | "non_keperluan_stock" =
       body.type === "pendapatan" ? "non_keperluan_stock" : body.category ?? "non_keperluan_stock";
-    const subcategory = body.type === "pendapatan" ? "Pendapatan" : body.subcategory;
+    const subcategory =
+      body.type === "pendapatan"
+        ? "Pendapatan"
+        : body.category === "non_keperluan_stock"
+          ? body.subcategory ?? "Non Keperluan Stock"
+          : body.subcategory;
     const items = body.items ?? [
       {
         ingredientId: body.ingredientId,
@@ -97,9 +101,6 @@ export async function POST(request: Request) {
     if (body.type === "pendapatan" && category === "keperluan_stock") {
       return badRequest("Pendapatan tidak boleh memakai kategori Keperluan Stock");
     }
-    if (body.type === "pengeluaran" && !subcategory) {
-      return badRequest("Subkategori pengeluaran wajib dipilih");
-    }
     if (body.type === "pengeluaran" && category === "keperluan_stock" && items.some((item) => !item.ingredientId)) {
       return badRequest("Pengeluaran Keperluan Stock wajib memilih barang dari Master Data");
     }
@@ -109,23 +110,8 @@ export async function POST(request: Request) {
     }
 
     const rows = await db.transaction(async (tx) => {
-      if (category === "non_keperluan_stock" && body.type === "pengeluaran") {
-        const [subcategoryOption] = await tx
-          .select({ id: ingredientMasterOptionsTable.id })
-          .from(ingredientMasterOptionsTable)
-          .where(
-            and(
-              eq(ingredientMasterOptionsTable.type, "finance_non_stock_subcategory"),
-              eq(ingredientMasterOptionsTable.value, subcategory!),
-              eq(ingredientMasterOptionsTable.active, true),
-            ),
-          )
-          .limit(1);
-
-        if (!subcategoryOption) throw new Error("Subkategori non-stock belum terdaftar di Master Data");
-      }
-
       const savedRows = [];
+      let stockCategory: string | null = null;
       for (const item of items) {
         let stockTransactionId: string | null = null;
         let itemName = item.itemName ?? subcategory ?? "Pendapatan";
@@ -140,7 +126,10 @@ export async function POST(request: Request) {
             .limit(1);
 
           if (!ingredient) throw new Error("Barang Master Data tidak ditemukan");
-          if (ingredient.category !== subcategory) throw new Error("Subkategori tidak sesuai kategori stock barang");
+          if (stockCategory && ingredient.category !== stockCategory) {
+            throw new Error("Barang pengeluaran stock harus dalam satu kategori stock yang sama");
+          }
+          stockCategory = ingredient.category;
 
           ingredientId = ingredient.id;
           itemName = ingredient.name;
@@ -156,7 +145,7 @@ export async function POST(request: Request) {
             type: body.type,
             fundMethod: body.fundMethod,
             category,
-            subcategory: subcategory ?? "Pendapatan",
+            subcategory: category === "keperluan_stock" ? stockCategory ?? "Keperluan Stock" : subcategory ?? "Pendapatan",
             ingredientId,
             itemName,
             quantity: String(item.quantity),

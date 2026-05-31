@@ -943,7 +943,7 @@ export function SotoStockApp() {
     itemName?: string;
     note?: string;
     quantity?: number;
-    subcategory: string;
+    subcategory?: string;
     transactionDate: string;
     type: FinanceTransactionType;
     unitPrice?: number;
@@ -6781,7 +6781,7 @@ function InputHubPage({
     itemName?: string;
     note?: string;
     quantity?: number;
-    subcategory: string;
+    subcategory?: string;
     transactionDate: string;
     type: FinanceTransactionType;
     unitPrice?: number;
@@ -6874,7 +6874,7 @@ function FinanceInputPage({
     itemName?: string;
     note?: string;
     quantity?: number;
-    subcategory: string;
+    subcategory?: string;
     transactionDate: string;
     type: FinanceTransactionType;
     unitPrice?: number;
@@ -6893,7 +6893,6 @@ function FinanceInputPage({
   const [activeForm, setActiveForm] = useState<FinanceTransactionType>("pengeluaran");
   const [fundMethod, setFundMethod] = useState<FinanceFundMethod>("cash");
   const [category, setCategory] = useState<FinanceCategory>("keperluan_stock");
-  const [subcategory, setSubcategory] = useState("");
   const [incomeAmount, setIncomeAmount] = useState("");
   const [expenseRows, setExpenseRows] = useState<FinanceExpenseRow[]>(() => [createExpenseRow("1")]);
   const [transactionDate, setTransactionDate] = useState(new Date().toISOString().slice(0, 10));
@@ -6903,13 +6902,11 @@ function FinanceInputPage({
   const [scanMessage, setScanMessage] = useState("");
   const [scanningReceipt, setScanningReceipt] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [nonStockSubcategories, setNonStockSubcategories] = useState<string[]>([]);
   const ingredientById = useMemo(() => new Map(inventory.map((item) => [item.id, item])), [inventory]);
   const ingredientByName = useMemo(() => new Map(inventory.map((item) => [item.name.toLowerCase(), item])), [inventory]);
-  const stockCategories = useMemo(() => Array.from(new Set(inventory.map((item) => item.category))).sort(), [inventory]);
   const recentFinanceRows = financeTransactions.slice(0, 6);
   const isStockExpense = activeForm === "pengeluaran" && category === "keperluan_stock";
-  const financeIngredientListId = `finance-ingredient-list-${category}`;
+  const financeIngredientListId = "finance-ingredient-list";
   const parsedExpenseRows = expenseRows.map((row) => ({
     ingredient: ingredientById.get(row.ingredientId),
     itemName: row.itemName.trim(),
@@ -6925,44 +6922,19 @@ function FinanceInputPage({
         }, 0);
 
   useEffect(() => {
-    let ignore = false;
-    async function loadOptions() {
-      try {
-        const options = await apiJson<IngredientMasterOptions>("/api/ingredients/master");
-        if (!ignore) setNonStockSubcategories(options.financeNonStockSubcategories ?? []);
-      } catch {
-        if (!ignore) setNonStockSubcategories([]);
-      }
-    }
-    void loadOptions();
-    return () => {
-      ignore = true;
-    };
-  }, []);
-
-  useEffect(() => {
     if (activeForm === "pendapatan") {
       setCategory("non_keperluan_stock");
     }
   }, [activeForm]);
 
-  useEffect(() => {
-    if (category === "keperluan_stock") {
-      setSubcategory((current) => (stockCategories.includes(current) ? current : stockCategories[0] ?? ""));
-    } else {
-      setSubcategory((current) => (nonStockSubcategories.includes(current) ? current : nonStockSubcategories[0] ?? ""));
-    }
-  }, [category, nonStockSubcategories, stockCategories]);
-
-  const stockItemsForCategory = inventory.filter((item) => item.category === subcategory);
+  const stockItemsForCategory = inventory;
 
   function handleExpenseIngredientQuery(key: string, query: string) {
     const ingredient = ingredientByName.get(query.trim().toLowerCase());
-    const validIngredient = ingredient && ingredient.category === subcategory ? ingredient : null;
     updateExpenseRow(key, {
-      ingredientId: validIngredient?.id ?? "",
+      ingredientId: ingredient?.id ?? "",
       query,
-      unitPrice: validIngredient ? String(validIngredient.price) : "",
+      unitPrice: ingredient ? String(ingredient.price) : "",
     });
   }
 
@@ -6986,7 +6958,6 @@ function FinanceInputPage({
       const formData = new FormData();
       formData.set("image", attachmentFile);
       formData.set("category", category);
-      formData.set("subcategory", subcategory);
       const result = await apiJson<{
         items: Array<{ itemName: string; quantity: number; unitPrice: number; ingredientId?: string }>;
         note?: string;
@@ -7039,7 +7010,7 @@ function FinanceInputPage({
       const invalidIngredient = activeForm === "pengeluaran" && isStockExpense && !item.ingredientId;
       return invalidAmount || invalidName || invalidIngredient;
     });
-    if (totalAmount <= 0 || hasInvalidExpense || (activeForm === "pengeluaran" && !subcategory)) return;
+    if (totalAmount <= 0 || hasInvalidExpense) return;
 
     setSubmitting(true);
     const success = await onSubmit({
@@ -7048,7 +7019,7 @@ function FinanceInputPage({
       fundMethod,
       items: payloadItems,
       note: note || undefined,
-      subcategory: activeForm === "pendapatan" ? "Pendapatan" : subcategory,
+      subcategory: activeForm === "pendapatan" ? "Pendapatan" : undefined,
       transactionDate,
       type: activeForm,
     });
@@ -7118,22 +7089,12 @@ function FinanceInputPage({
               </label>
             ) : (
               <>
-                <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+                <div className="grid min-w-0 gap-3">
                   <label className="grid gap-1.5 text-sm font-semibold">
                     <span className="sr-only">Kategori</span>
                     <Select disabled={submitting} onChange={(event) => setCategory(event.target.value as FinanceCategory)} value={category}>
                       <option value="keperluan_stock">Keperluan Stock</option>
                       <option value="non_keperluan_stock">Non Keperluan Stock</option>
-                    </Select>
-                  </label>
-                  <label className="grid gap-1.5 text-sm font-semibold">
-                    <span className="sr-only">Subkategori</span>
-                    <Select disabled={submitting} onChange={(event) => setSubcategory(event.target.value)} value={subcategory}>
-                      {(category === "keperluan_stock" ? stockCategories : nonStockSubcategories).map((item) => (
-                        <option key={item} value={item}>
-                          {item}
-                        </option>
-                      ))}
                     </Select>
                   </label>
                 </div>

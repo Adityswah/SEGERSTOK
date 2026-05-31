@@ -27,6 +27,28 @@ function normalizeName(value: string) {
   return value.trim().toLowerCase();
 }
 
+function extractResponseText(payload: unknown) {
+  if (!payload || typeof payload !== "object") return "";
+  const directText = (payload as { output_text?: unknown }).output_text;
+  if (typeof directText === "string") return directText;
+
+  const output = (payload as { output?: unknown }).output;
+  if (!Array.isArray(output)) return "";
+
+  return output
+    .flatMap((item) => {
+      const content = item && typeof item === "object" ? (item as { content?: unknown }).content : null;
+      return Array.isArray(content) ? content : [];
+    })
+    .map((part) => {
+      if (!part || typeof part !== "object") return "";
+      const text = (part as { text?: unknown }).text;
+      return typeof text === "string" ? text : "";
+    })
+    .join("\n")
+    .trim();
+}
+
 export async function POST(request: Request) {
   try {
     const guard = guardMutation(request, { keyPrefix: "finance:scan-receipt", limit: 12, windowMs: 60_000 });
@@ -39,13 +61,11 @@ export async function POST(request: Request) {
     const formData = await request.formData();
     const image = formData.get("image");
     const category = String(formData.get("category") ?? "");
-    const subcategory = String(formData.get("subcategory") ?? "");
     if (!(image instanceof File)) return badRequest("Bukti foto wajib dikirim");
     if (!image.type.startsWith("image/")) return badRequest("File harus berupa gambar");
     if (image.size > 4_000_000) return payloadTooLarge("Ukuran foto maksimal 4 MB");
 
     const ingredientClauses: SQL[] = [eq(ingredientsTable.active, true)];
-    if (category === "keperluan_stock") ingredientClauses.push(eq(ingredientsTable.category, subcategory));
 
     const ingredients = await db
       .select({
@@ -84,7 +104,7 @@ export async function POST(request: Request) {
                   '{"items":[{"itemName":"nama","quantity":1,"unitPrice":10000}],"note":"ringkas"}. ' +
                   "unitPrice adalah harga satuan rupiah, bukan total baris. Maksimal 20 item. " +
                   (category === "keperluan_stock"
-                    ? `Cocokkan item hanya dengan master barang kategori ${subcategory}: ${ingredientList}. Jika tidak yakin, pakai nama pada struk.`
+                    ? `Cocokkan item dengan master barang berikut: ${ingredientList}. Jika tidak yakin, pakai nama pada struk.`
                     : "Untuk non-stock, pakai nama/keterangan yang tertulis di struk."),
               },
               { type: "input_image", image_url: dataUrl },
@@ -99,14 +119,22 @@ export async function POST(request: Request) {
       return badRequest(`Scan AI gagal diproses${text ? `: ${text.slice(0, 180)}` : ""}`);
     }
 
-    const payload = (await response.json()) as { output_text?: string };
-    const rawText = payload.output_text ?? "";
+    const payload = await response.json();
+    const rawText = extractResponseText(payload);
+    if (!rawText) return badRequest("Scan AI tidak mengembalikan teks yang bisa dibaca");
     const jsonText = rawText.match(/\{[\s\S]*\}/)?.[0] ?? rawText;
-    const parsed = scanResponseSchema.parse(JSON.parse(jsonText));
+    let parsedJson: unknown;
+    try {
+      parsedJson = JSON.parse(jsonText);
+    } catch {
+      return badRequest("Scan AI membaca foto, tetapi hasilnya bukan JSON valid. Coba foto ulang lebih jelas.");
+    }
+    const parsed = scanResponseSchema.safeParse(parsedJson);
+    if (!parsed.success) return badRequest("Scan AI membaca foto, tetapi format hasilnya belum valid. Coba foto ulang lebih jelas.");
     const ingredientByName = new Map(ingredients.map((item) => [normalizeName(item.name), item]));
 
     return ok({
-      items: parsed.items.map((item) => {
+      items: parsed.data.items.map((item) => {
         const ingredient = ingredientByName.get(normalizeName(item.itemName));
         return {
           itemName: ingredient?.name ?? item.itemName,
@@ -115,7 +143,7 @@ export async function POST(request: Request) {
           unitPrice: Math.round(item.unitPrice || ingredient?.averagePrice || 0),
         };
       }),
-      note: parsed.note,
+      note: parsed.data.note,
     });
   } catch (error) {
     return serverError(error);
