@@ -14,6 +14,7 @@ import {
 import { canAccessBom, getRole, requireSession } from "@/lib/api/authz";
 import { badRequest, forbidden, ok, serverError, unauthorized } from "@/lib/api/responses";
 import { guardMutation, parseJsonBody } from "@/lib/api/security";
+import { generateTransactionNo } from "@/lib/api/transaction-number";
 
 const produceSchema = z.object({
   bomId: z.string().min(2),
@@ -43,6 +44,7 @@ export async function GET() {
         note: bomProductionRunsTable.note,
         productionDate: bomProductionRunsTable.productionDate,
         createdAt: bomProductionRunsTable.createdAt,
+        transactionNo: bomProductionRunsTable.transactionNo,
       })
       .from(bomProductionRunsTable)
       .innerJoin(bomRecipesTable, eq(bomRecipesTable.id, bomProductionRunsTable.bomRecipeId))
@@ -134,6 +136,7 @@ export async function POST(request: Request) {
     }
 
     const productionDate = body.transactionDate ?? new Date();
+    const transactionNo = generateTransactionNo("BOM", productionDate);
     const totalProduced = Number(recipe.yieldQuantity) * batches;
     const totalCost = Math.round(recipe.totalCost * batches);
     const [finishedIngredient] = await db
@@ -165,6 +168,7 @@ export async function POST(request: Request) {
 
         await tx.insert(stockTransactionsTable).values({
           id: crypto.randomUUID(),
+          transactionNo,
           ingredientId: item.ingredientId,
           type: "keluar",
           quantity: String(requiredQty),
@@ -210,6 +214,7 @@ export async function POST(request: Request) {
 
       await tx.insert(stockTransactionsTable).values({
         id: crypto.randomUUID(),
+        transactionNo,
         ingredientId: recipe.finishedIngredientId,
         type: "masuk",
         quantity: String(totalProduced),
@@ -246,6 +251,7 @@ export async function POST(request: Request) {
 
       await tx.insert(bomProductionRunsTable).values({
         id: productionRunId,
+        transactionNo,
         bomRecipeId: recipe.id,
         finishedIngredientId: recipe.finishedIngredientId,
         batches: String(batches),
@@ -260,6 +266,7 @@ export async function POST(request: Request) {
 
     return ok({
       bomId: recipe.id,
+      transactionNo,
       producedQuantity: totalProduced,
       totalCost,
       batches,

@@ -11,6 +11,7 @@ import {
 import { canInputFinance, canReadFinance, getRole, requireSession } from "@/lib/api/authz";
 import { badRequest, created, forbidden, ok, serverError, unauthorized } from "@/lib/api/responses";
 import { guardMutation, parseJsonBody } from "@/lib/api/security";
+import { generateTransactionNo } from "@/lib/api/transaction-number";
 
 const financeTransactionItemSchema = z.object({
   ingredientId: z.string().trim().min(1).optional(),
@@ -119,6 +120,9 @@ export async function POST(request: Request) {
       return badRequest("Jumlah transaksi tidak valid");
     }
 
+    const transactionDate = body.transactionDate ?? new Date();
+    const transactionNo = generateTransactionNo(body.type === "pendapatan" ? "FIN-IN" : "FIN-OUT", transactionDate);
+
     const rows = await db.transaction(async (tx) => {
       const savedRows = [];
       for (const item of items) {
@@ -149,6 +153,7 @@ export async function POST(request: Request) {
           .insert(financeTransactionsTable)
           .values({
             id: financeId,
+            transactionNo,
             type: body.type,
             fundMethod: body.fundMethod,
             category,
@@ -159,7 +164,7 @@ export async function POST(request: Request) {
             unit,
             unitPrice: item.unitPrice,
             totalAmount,
-            transactionDate: body.transactionDate ?? new Date(),
+            transactionDate,
             note: body.note,
             attachmentName: body.attachmentName,
             operatorId: session.user.id,
@@ -182,12 +187,13 @@ export async function POST(request: Request) {
             .insert(stockTransactionsTable)
             .values({
               id: crypto.randomUUID(),
+              transactionNo,
               ingredientId,
               type: "masuk",
               quantity: String(item.quantity),
               unitPrice: item.unitPrice,
               financeTransactionId: financeId,
-              transactionDate: body.transactionDate ?? new Date(),
+              transactionDate,
               clientRequestId: `finance:${financeId}`,
               operatorId: session.user.id,
               operatorName: session.user.name,

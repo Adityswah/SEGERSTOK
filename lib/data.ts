@@ -7,10 +7,12 @@ import {
   ClipboardList,
   Gauge,
   LogOut,
+  Landmark,
   ScrollText,
   Settings2,
   SlidersHorizontal,
   TrendingUp,
+  WalletCards,
 } from "lucide-react";
 
 export type Role = "Owner" | "Kasir" | "Cheef" | "Waiters";
@@ -46,8 +48,10 @@ export const navItems = [
   { id: "opname", label: "Opname", icon: ClipboardCheck, group: "Transaksi" },
   { id: "koreksi-stok", label: "Koreksi Stok", icon: SlidersHorizontal, group: "Transaksi" },
   { id: "ai", label: "AI Stok", icon: TrendingUp, group: "Analitik" },
-  { id: "laporan", label: "Laporan", icon: ScrollText, group: "Analitik" },
-  { id: "bahan", label: "Master Bahan", icon: ClipboardList, group: "Data" },
+  { id: "laporan-finance", label: "Laporan Finance", icon: WalletCards, group: "Laporan" },
+  { id: "laporan-stock", label: "Laporan Stock", icon: ScrollText, group: "Laporan" },
+  { id: "master-finance", label: "Master Data Finance", icon: Landmark, group: "Master Data" },
+  { id: "master-stock", label: "Master Data Stock", icon: ClipboardList, group: "Master Data" },
   { id: "pengaturan", label: "Pengaturan", icon: Settings2, group: "Pengaturan" },
 ] as const;
 

@@ -113,6 +113,7 @@ type BomRecipeRow = {
 
 type BomProductionHistoryRow = {
   id: string;
+  transactionNo: string | null;
   bomId: string;
   finishedIngredientId: string;
   bomName: string;
@@ -137,6 +138,7 @@ type BomProductionHistoryRow = {
 
 type TransactionRow = {
   id: string;
+  transactionNo: string | null;
   ingredientId: string;
   type: StockMode;
   quantity: string;
@@ -159,6 +161,7 @@ type FinanceCategory = "keperluan_stock" | "non_keperluan_stock";
 
 type FinanceTransactionRow = {
   id: string;
+  transactionNo: string | null;
   type: FinanceTransactionType;
   fundMethod: FinanceFundMethod;
   category: FinanceCategory;
@@ -364,13 +367,21 @@ const pageCopy: Record<PageId, { tag: string; title: string }> = {
     tag: "AI Operasional",
     title: "Rekomendasi Pembelian & Proyeksi Stok",
   },
-  laporan: {
-    tag: "Laporan",
-    title: "Laporan & Audit Trail",
+  "laporan-finance": {
+    tag: "Laporan Finance",
+    title: "Kas Bank, Laba Rugi, Arus Kas, Neraca Lite",
   },
-  bahan: {
-    tag: "Master Data",
-    title: "Master Bahan Baku",
+  "laporan-stock": {
+    tag: "Laporan Stock",
+    title: "Stock Masuk, Keluar, dan Kondisi Stock",
+  },
+  "master-finance": {
+    tag: "Master Data Finance",
+    title: "Kategori Finance dan Edit Data Finance",
+  },
+  "master-stock": {
+    tag: "Master Data Stock",
+    title: "Barang, Kategori, Satuan, dan BOM",
   },
   pengaturan: {
     tag: "Pengaturan",
@@ -379,7 +390,7 @@ const pageCopy: Record<PageId, { tag: string; title: string }> = {
 };
 
 function allowedNav(role: Role) {
-  if (role === "Owner") return navItems.filter((item) => ["dashboard", "stok", "opname", "laporan", "input", "koreksi-stok", "pengaturan"].includes(item.id));
+  if (role === "Owner") return navItems.filter((item) => ["dashboard", "stok", "opname", "laporan-finance", "laporan-stock", "input", "koreksi-stok", "master-finance", "master-stock", "pengaturan"].includes(item.id));
   if (role === "Kasir") return navItems.filter((item) => ["input", "opname"].includes(item.id));
   if (role === "Cheef") return navItems.filter((item) => ["stok-masuk", "stok-keluar", "opname", "pengaturan"].includes(item.id));
   return navItems.filter((item) => ["stok-masuk", "stok-keluar", "opname", "pengaturan"].includes(item.id));
@@ -1245,16 +1256,50 @@ export function SotoStockApp() {
               />
             )}
             {activePage === "ai" && <AiPage inventory={inventory} transactions={transactions} />}
-            {activePage === "laporan" && (
+            {activePage === "laporan-finance" && (
               <ReportPage
                 financeTransactions={financeTransactions}
                 inventory={inventory}
+                reportKind="finance"
                 role={role}
                 stockLedger={stockLedger}
                 transactions={transactions}
               />
             )}
-            {activePage === "bahan" && <MasterDataPage categories={availableCategories} inventory={inventory} />}
+            {activePage === "laporan-stock" && (
+              <ReportPage
+                financeTransactions={financeTransactions}
+                inventory={inventory}
+                reportKind="stock"
+                role={role}
+                stockLedger={stockLedger}
+                transactions={transactions}
+              />
+            )}
+            {activePage === "master-stock" && (
+              <SettingsPage
+                categories={allCategories}
+                email={user?.email ?? ""}
+                financeTransactions={financeTransactions}
+                inventory={inventory}
+                name={user?.name ?? ""}
+                onSaved={loadData}
+                role={role}
+                scope="stock"
+              />
+            )}
+            {activePage === "master-finance" && (
+              <SettingsPage
+                categories={allCategories}
+                email={user?.email ?? ""}
+                financeTransactions={financeTransactions}
+                inventory={inventory}
+                name={user?.name ?? ""}
+                onSaved={loadData}
+                role={role}
+                scope="finance"
+              />
+            )}
             {activePage === "pengaturan" && (
               <SettingsPage
                 categories={allCategories}
@@ -1264,6 +1309,7 @@ export function SotoStockApp() {
                 name={user?.name ?? ""}
                 onSaved={loadData}
                 role={role}
+                scope="account"
               />
             )}
           </div>
@@ -1566,8 +1612,10 @@ function Sidebar({
     role === "Owner"
       ? [
           { label: "Command Center", ids: ["dashboard", "stok"] },
-          { label: "Audit", ids: ["opname", "laporan"] },
+          { label: "Laporan", ids: ["laporan-finance", "laporan-stock"] },
+          { label: "Audit", ids: ["opname"] },
           { label: "Operasional", ids: ["input", "koreksi-stok"] },
+          { label: "Master Data", ids: ["master-finance", "master-stock"] },
           { label: "Setting", ids: ["pengaturan"] },
         ]
       : role === "Cheef"
@@ -1904,7 +1952,7 @@ function DashboardPage({
   onCriticalStock: () => void;
 }) {
   const todayKey = dateInputKey(new Date());
-  const [dashboardRangePreset, setDashboardRangePreset] = useState<DashboardRangePreset>("7d");
+  const [dashboardRangePreset, setDashboardRangePreset] = useState<DashboardRangePreset>("this-month");
   const [dashboardCustomStart, setDashboardCustomStart] = useState(dateInputKey(addDays(new Date(), -6)));
   const [dashboardCustomEnd, setDashboardCustomEnd] = useState(todayKey);
   const [stockGranularity, setStockGranularity] = useState<ChartGranularity>("tanggal");
@@ -4712,6 +4760,18 @@ function reportPeriodFromSelection(year: number, month: number): ReportPeriod {
   return { end, label: `${reportMonthNames[month]} ${year}`, month, start, year };
 }
 
+function reportPeriodFromRange(days: DashboardBucket[]): ReportPeriod {
+  const start = days[0]?.start ?? monthStart(new Date());
+  const end = days.at(-1)?.end ?? endOfDay(new Date());
+  return {
+    end,
+    label: `${start.toLocaleDateString("id-ID")} - ${end.toLocaleDateString("id-ID")}`,
+    month: start.getMonth(),
+    start,
+    year: start.getFullYear(),
+  };
+}
+
 function isDateInPeriod(date: Date, period: ReportPeriod) {
   const time = date.getTime();
   return !Number.isNaN(time) && time >= period.start.getTime() && time <= period.end.getTime();
@@ -5220,12 +5280,14 @@ async function downloadReportExcel(
 function ReportPage({
   financeTransactions,
   inventory,
+  reportKind,
   transactions,
   stockLedger,
   role,
 }: {
   financeTransactions: FinanceTransactionRow[];
   inventory: Ingredient[];
+  reportKind: "finance" | "stock";
   transactions: TransactionRow[];
   stockLedger: StockLedgerRow[];
   role: Role;
@@ -5244,6 +5306,9 @@ function ReportPage({
   const [transactionRangePreset, setTransactionRangePreset] = useState<DashboardRangePreset>("all");
   const [transactionCustomStart, setTransactionCustomStart] = useState(dateInputKey(addDays(new Date(), -6)));
   const [transactionCustomEnd, setTransactionCustomEnd] = useState(dateInputKey(new Date()));
+  const [reportRangePreset, setReportRangePreset] = useState<DashboardRangePreset>("this-month");
+  const [reportCustomStart, setReportCustomStart] = useState(dateInputKey(monthStart(new Date())));
+  const [reportCustomEnd, setReportCustomEnd] = useState(dateInputKey(new Date()));
   const [bomSort, setBomSort] = useState<
     AutoFilterState<"time" | "bom" | "productionCount" | "producedQuantity" | "cost" | "operator" | "note">
   >({
@@ -5340,14 +5405,28 @@ function ReportPage({
   }, [exportMonth, exportOptions.months]);
 
   const exportPeriod = useMemo(() => reportPeriodFromSelection(exportYear, exportMonth), [exportMonth, exportYear]);
+  const reportDays = useMemo(
+    () => dashboardRangeFromPreset(reportRangePreset, reportCustomStart, reportCustomEnd),
+    [reportCustomEnd, reportCustomStart, reportRangePreset],
+  );
+  const visiblePeriod = useMemo(() => reportPeriodFromRange(reportDays), [reportDays]);
   const financialReport = useMemo(
-    () => buildFinancialReportData(inventory, transactions, stockLedger, bomHistory, exportPeriod),
-    [bomHistory, exportPeriod, inventory, stockLedger, transactions],
+    () => buildFinancialReportData(inventory, transactions, stockLedger, bomHistory, visiblePeriod),
+    [bomHistory, inventory, stockLedger, transactions, visiblePeriod],
   );
   const financeReport = useMemo(() => {
-    const rows = financeTransactions.filter((item) => isDateInPeriod(new Date(item.transactionDate), exportPeriod));
+    const rows = financeTransactions.filter((item) => isDateInPeriod(new Date(item.transactionDate), visiblePeriod));
     const grossIncome = rows.filter((item) => item.type === "pendapatan").reduce((sum, item) => sum + item.totalAmount, 0);
     const expense = rows.filter((item) => item.type === "pengeluaran").reduce((sum, item) => sum + item.totalAmount, 0);
+    const cogs = rows
+      .filter((item) => item.type === "pengeluaran" && item.category === "keperluan_stock")
+      .reduce((sum, item) => sum + item.totalAmount, 0);
+    const nonStockExpense = rows
+      .filter((item) => item.type === "pengeluaran" && item.category !== "keperluan_stock")
+      .reduce((sum, item) => sum + item.totalAmount, 0);
+    const priveExpense = rows
+      .filter((item) => item.type === "pengeluaran" && item.subcategory.toLowerCase() === "prive")
+      .reduce((sum, item) => sum + item.totalAmount, 0);
     const cashIn = rows
       .filter((item) => item.type === "pendapatan" && item.fundMethod === "cash")
       .reduce((sum, item) => sum + item.totalAmount, 0);
@@ -5364,31 +5443,72 @@ function ReportPage({
       rows,
       grossIncome,
       expense,
+      cogs,
+      nonStockExpense,
+      priveExpense,
       netCash: cashIn - cashOut,
       netBank: bankIn - bankOut,
       totalNet: grossIncome - expense,
+      cashIn,
+      cashOut,
+      bankIn,
+      bankOut,
+      grossProfit: grossIncome - cogs,
+      operatingProfit: grossIncome - cogs - nonStockExpense + priveExpense,
     };
-  }, [exportPeriod, financeTransactions]);
+  }, [financeTransactions, visiblePeriod]);
   const stockReport = useMemo(() => {
-    const rows = transactions.filter((item) => isDateInPeriod(transactionActivityDate(item), exportPeriod));
+    const rows = transactions.filter((item) => isDateInPeriod(transactionActivityDate(item), visiblePeriod));
     const stockIn = rows.filter((item) => item.type === "masuk").reduce((sum, item) => sum + Number(item.quantity), 0);
     const stockOut = rows.filter((item) => item.type === "keluar").reduce((sum, item) => sum + Number(item.quantity), 0);
     const conditionCount = inventory.filter((item) => stockStatus(item).label !== "Aman").length;
     return { stockIn, stockOut, conditionCount };
-  }, [exportPeriod, inventory, transactions]);
+  }, [inventory, transactions, visiblePeriod]);
 
-  const transactionCards = useMemo(
-    () =>
-      filteredTransactions.map((item) => {
-        const ingredient = ingredientById.get(item.ingredientId);
-        return {
-          item,
-          ingredient,
-          timestamp: transactionActivityDate(item),
-        };
-      }),
-    [filteredTransactions, ingredientById],
-  );
+  const groupedStockLogs = useMemo(() => {
+    const groups = new Map<string, { transactionNo: string; date: Date; type: StockMode; operatorName: string; rows: TransactionRow[]; totalQuantity: number; totalNominal: number }>();
+    for (const row of filteredTransactions) {
+      const key = row.transactionNo ?? `STK-LEGACY-${row.id}`;
+      const ingredient = ingredientById.get(row.ingredientId);
+      const group = groups.get(key) ?? {
+        transactionNo: key,
+        date: transactionActivityDate(row),
+        type: row.type,
+        operatorName: row.operatorName,
+        rows: [],
+        totalQuantity: 0,
+        totalNominal: 0,
+      };
+      group.rows.push(row);
+      group.totalQuantity += Number(row.quantity);
+      group.totalNominal += Number(row.quantity) * (row.unitPrice ?? ingredient?.price ?? 0);
+      groups.set(key, group);
+    }
+    return Array.from(groups.values()).sort((left, right) => right.date.getTime() - left.date.getTime());
+  }, [filteredTransactions, ingredientById]);
+
+  const groupedFinanceLogs = useMemo(() => {
+    const rows = financeReport.rows;
+    const groups = new Map<string, { transactionNo: string; date: Date; type: FinanceTransactionType; fundMethod: FinanceFundMethod; operatorName: string; rows: FinanceTransactionRow[]; totalAmount: number; totalQuantity: number }>();
+    for (const row of rows) {
+      const key = row.transactionNo ?? `FIN-LEGACY-${row.id}`;
+      const group = groups.get(key) ?? {
+        transactionNo: key,
+        date: new Date(row.transactionDate),
+        type: row.type,
+        fundMethod: row.fundMethod,
+        operatorName: row.operatorName,
+        rows: [],
+        totalAmount: 0,
+        totalQuantity: 0,
+      };
+      group.rows.push(row);
+      group.totalAmount += row.totalAmount;
+      group.totalQuantity += Number(row.quantity);
+      groups.set(key, group);
+    }
+    return Array.from(groups.values()).sort((left, right) => right.date.getTime() - left.date.getTime());
+  }, [financeReport.rows]);
 
   useEffect(() => {
     if (!canAccessBomUi(role)) {
@@ -5434,10 +5554,23 @@ function ReportPage({
     <div className="grid gap-5 xl:grid-cols-[0.7fr_1.3fr]">
       <Card className="bg-card/95">
         <CardHeader>
-          <p className="text-[11px] font-bold uppercase text-muted-foreground">Reporting</p>
-          <CardTitle className="mt-1">Ekspor</CardTitle>
+          <p className="text-[11px] font-bold uppercase text-muted-foreground">{reportKind === "finance" ? "Laporan Finance" : "Laporan Stock"}</p>
+          <CardTitle className="mt-1">{reportKind === "finance" ? "Periode Kas & Laba Rugi" : "Periode Stock"}</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-2">
+          <div className="rounded-md border bg-muted/35 p-3">
+            <DateAutoFilterHeader
+              customEnd={reportCustomEnd}
+              customStart={reportCustomStart}
+              onCustomEndChange={setReportCustomEnd}
+              onCustomStartChange={setReportCustomStart}
+              onRangePresetChange={setReportRangePreset}
+              onSortChange={() => undefined}
+              rangePreset={reportRangePreset}
+              value=""
+            />
+            <p className="mt-2 text-xs font-medium text-muted-foreground">{visiblePeriod.label}</p>
+          </div>
           <div className="grid gap-2 sm:grid-cols-2">
             <label className="grid gap-1 text-xs font-semibold uppercase tracking-[0.1em] text-muted-foreground">
               Tahun
@@ -5469,7 +5602,7 @@ function ReportPage({
             Export PDF analitik {exportPeriod.label}
           </Button>
           <Separator className="my-2" />
-          <div className="rounded-md bg-muted/45 p-4">
+          {reportKind === "stock" && <div className="rounded-md bg-muted/45 p-4">
             <p className="text-xs text-muted-foreground">Nilai stok saat ini</p>
             <p className="mt-1 font-mono text-2xl font-bold">{formatRupiah(value)}</p>
             <div className="mt-4 grid gap-2 text-sm">
@@ -5486,12 +5619,12 @@ function ReportPage({
                 </div>
               ))}
             </div>
-          </div>
-          <div className="rounded-md border bg-card p-4">
+          </div>}
+          {reportKind === "finance" && <div className="rounded-md border bg-card p-4">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-xs text-muted-foreground">Laporan Finance</p>
-                <p className="mt-1 text-sm font-bold">{exportPeriod.label}</p>
+                <p className="mt-1 text-sm font-bold">{visiblePeriod.label}</p>
               </div>
               <Wallet className="size-5 text-primary" />
             </div>
@@ -5509,12 +5642,12 @@ function ReportPage({
                 </div>
               ))}
             </div>
-          </div>
-          <div className="rounded-md border bg-card p-4">
+          </div>}
+          {reportKind === "stock" && <div className="rounded-md border bg-card p-4">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-xs text-muted-foreground">Laporan Stock</p>
-                <p className="mt-1 text-sm font-bold">{exportPeriod.label}</p>
+                <p className="mt-1 text-sm font-bold">{visiblePeriod.label}</p>
               </div>
               <Package className="size-5 text-primary" />
             </div>
@@ -5530,38 +5663,46 @@ function ReportPage({
                 </div>
               ))}
             </div>
-          </div>
+          </div>}
           {reportMessage && <p className="rounded-md border bg-muted/35 p-3 text-xs font-medium text-muted-foreground">{reportMessage}</p>}
         </CardContent>
       </Card>
-      <Card className="bg-card/95">
+      {reportKind === "stock" && <Card className="bg-card/95">
         <CardHeader>
-          <p className="text-[11px] font-bold uppercase text-muted-foreground">Transaction log</p>
-          <CardTitle className="mt-1">Audit Trail dari API</CardTitle>
+          <p className="text-[11px] font-bold uppercase text-muted-foreground">Stock grouped log</p>
+          <CardTitle className="mt-1">Audit Trail per Nomor Transaksi</CardTitle>
           </CardHeader>
         <CardContent>
           <div className="grid gap-3 md:hidden">
-            {transactionCards.map(({ item, ingredient, timestamp }) => {
+            {groupedStockLogs.map((group) => {
               return (
-                <div key={item.id} className="rounded-md border bg-muted/35 p-4">
+                <div key={group.transactionNo} className="rounded-md border bg-muted/35 p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <p className="truncate font-bold">{ingredient?.name ?? item.ingredientId}</p>
-                      <p className="mt-1 text-xs text-muted-foreground">{timestamp.toLocaleString("id-ID")}</p>
+                      <p className="truncate font-mono font-bold">{group.transactionNo}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">{group.date.toLocaleString("id-ID")}</p>
                     </div>
-                    <Badge variant={item.type === "keluar" ? "warning" : "success"}>{item.type}</Badge>
+                    <Badge variant={group.type === "keluar" ? "warning" : "success"}>{group.type}</Badge>
                   </div>
-                  <div className="mt-4 flex items-center justify-between gap-3 text-sm">
-                    <span className="text-muted-foreground">{item.operatorName}</span>
-                    <span className="font-mono font-medium">{Number(item.quantity)} {ingredient?.unit ?? ""}</span>
+                  <div className="mt-3 grid gap-2">
+                    {group.rows.map((item) => {
+                      const ingredient = ingredientById.get(item.ingredientId);
+                      return (
+                        <div className="flex items-center justify-between gap-3 text-sm" key={item.id}>
+                          <span className="truncate">{ingredient?.name ?? item.ingredientId}</span>
+                          <span className="font-mono font-medium">{Number(item.quantity)} {ingredient?.unit ?? ""}</span>
+                        </div>
+                      );
+                    })}
                   </div>
+                  <p className="mt-3 text-xs text-muted-foreground">{group.operatorName} • {formatRupiah(group.totalNominal)}</p>
                 </div>
               );
             })}
-            {!transactionCards.length && <EmptyState message="Belum ada transaksi atau role Anda bukan Owner." />}
+            {!groupedStockLogs.length && <EmptyState message="Belum ada transaksi atau role Anda bukan Owner." />}
           </div>
           <div className="hidden overflow-x-auto rounded-md border md:block">
-            <table className="w-full min-w-[650px] text-sm">
+            <table className="w-full min-w-[820px] text-sm">
               <thead className="bg-muted/70 text-xs uppercase text-muted-foreground">
                 <tr>
                   <th className="px-4 py-2 text-left">
@@ -5579,27 +5720,39 @@ function ReportPage({
                   <th className="px-4 py-2 text-left">
                     <AutoFilterHeader label="Tipe" kind="text" onChange={(value) => setTransactionSortColumn("type", value)} value={transactionSort.column === "type" ? transactionSort.direction : ""} />
                   </th>
-                  <th className="px-4 py-2 text-left">
-                    <AutoFilterHeader label="Bahan" kind="text" onChange={(value) => setTransactionSortColumn("ingredient", value)} value={transactionSort.column === "ingredient" ? transactionSort.direction : ""} />
-                  </th>
-                  <th className="px-4 py-2 text-left">
-                    <AutoFilterHeader label="Jumlah" kind="number" onChange={(value) => setTransactionSortColumn("quantity", value)} value={transactionSort.column === "quantity" ? transactionSort.direction : ""} />
-                  </th>
-                  <th className="px-4 py-2 text-left">
-                    <AutoFilterHeader label="Operator" kind="text" onChange={(value) => setTransactionSortColumn("operator", value)} value={transactionSort.column === "operator" ? transactionSort.direction : ""} />
-                  </th>
+                  <th className="px-4 py-2 text-left">No Transaksi / Barang</th>
+                  <th className="px-4 py-2 text-right">Qty</th>
+                  <th className="px-4 py-2 text-right">Nominal</th>
+                  <th className="px-4 py-2 text-left">Operator</th>
                 </tr>
               </thead>
               <tbody>
-                {transactionCards.map(({ item, ingredient, timestamp }) => {
+                {groupedStockLogs.map((group) => {
                   return (
-                    <tr key={item.id} className="border-t">
-                      <td className="px-4 py-3 font-mono">{timestamp.toLocaleString("id-ID")}</td>
-                      <td className="px-4 py-3"><Badge variant={item.type === "keluar" ? "warning" : "success"}>{item.type}</Badge></td>
-                      <td className="px-4 py-3 font-bold">{ingredient?.name ?? item.ingredientId}</td>
-                      <td className="px-4 py-3 font-mono">{Number(item.quantity)} {ingredient?.unit ?? ""}</td>
-                      <td className="px-4 py-3">{item.operatorName}</td>
-                    </tr>
+                    <Fragment key={group.transactionNo}>
+                      <tr className="border-t bg-muted/25">
+                        <td className="px-4 py-3 font-mono">{group.date.toLocaleString("id-ID")}</td>
+                        <td className="px-4 py-3"><Badge variant={group.type === "keluar" ? "warning" : "success"}>{group.type}</Badge></td>
+                        <td className="px-4 py-3 font-mono font-bold">{group.transactionNo}</td>
+                        <td className="px-4 py-3 text-right font-mono">{group.totalQuantity.toLocaleString("id-ID")}</td>
+                        <td className="px-4 py-3 text-right font-mono">{formatRupiah(group.totalNominal)}</td>
+                        <td className="px-4 py-3">{group.operatorName}</td>
+                      </tr>
+                      {group.rows.map((item) => {
+                        const ingredient = ingredientById.get(item.ingredientId);
+                        const nominal = Number(item.quantity) * (item.unitPrice ?? ingredient?.price ?? 0);
+                        return (
+                          <tr key={item.id} className="border-t">
+                            <td className="px-4 py-2 text-muted-foreground"></td>
+                            <td className="px-4 py-2 text-muted-foreground"></td>
+                            <td className="px-4 py-2">{ingredient?.name ?? item.ingredientId}</td>
+                            <td className="px-4 py-2 text-right font-mono">{Number(item.quantity)} {ingredient?.unit ?? ""}</td>
+                            <td className="px-4 py-2 text-right font-mono">{formatRupiah(nominal)}</td>
+                            <td className="px-4 py-2 text-muted-foreground">{item.note ?? "-"}</td>
+                          </tr>
+                        );
+                      })}
+                    </Fragment>
                   );
                 })}
               </tbody>
@@ -5607,8 +5760,8 @@ function ReportPage({
             {!filteredTransactions.length && <EmptyState message="Belum ada transaksi atau role Anda bukan Owner." />}
           </div>
         </CardContent>
-      </Card>
-      {canAccessBomUi(role) && (
+      </Card>}
+      {reportKind === "stock" && canAccessBomUi(role) && (
         <Card className="bg-card/95 xl:col-span-2">
           <CardHeader>
             <p className="text-[11px] font-bold uppercase text-muted-foreground">BOM production log</p>
@@ -5621,6 +5774,7 @@ function ReportPage({
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="truncate font-bold">{item.bomName}</p>
+                      <p className="mt-1 font-mono text-xs text-muted-foreground">{item.transactionNo ?? `BOM-LEGACY-${item.id.slice(0, 8)}`}</p>
                       <p className="mt-1 text-xs text-muted-foreground">{new Date(item.productionDate).toLocaleString("id-ID")}</p>
                     </div>
                     <Badge variant="success">{item.producedQuantity} {item.yieldUnit}</Badge>
@@ -5660,6 +5814,7 @@ function ReportPage({
                     <th className="px-4 py-3 text-left">
                       <AutoFilterHeader label="Waktu" kind="date" onChange={(value) => setBomSortColumn("time", value)} value={bomSort.column === "time" ? bomSort.direction : ""} />
                     </th>
+                    <th className="px-4 py-3 text-left">No Transaksi</th>
                     <th className="px-4 py-3 text-left">
                       <AutoFilterHeader label="BOM" kind="text" onChange={(value) => setBomSortColumn("bom", value)} value={bomSort.column === "bom" ? bomSort.direction : ""} />
                     </th>
@@ -5686,6 +5841,7 @@ function ReportPage({
                     <Fragment key={item.id}>
                       <tr key={item.id} className="border-t">
                         <td className="px-4 py-3 font-mono">{new Date(item.productionDate).toLocaleString("id-ID")}</td>
+                        <td className="px-4 py-3 font-mono">{item.transactionNo ?? `BOM-LEGACY-${item.id.slice(0, 8)}`}</td>
                         <td className="px-4 py-3 font-bold">{item.bomName}</td>
                         <td className="px-4 py-3 font-mono">{item.productionCount}x</td>
                         <td className="px-4 py-3 font-mono">{item.producedQuantity} {item.yieldUnit}</td>
@@ -5704,7 +5860,7 @@ function ReportPage({
                       </tr>
                       {expandedBomHistoryId === item.id && (
                         <tr className="border-t bg-muted/25">
-                          <td className="px-4 py-3" colSpan={8}>
+                          <td className="px-4 py-3" colSpan={9}>
                             <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
                               {item.items.map((detail) => (
                                 <div className="rounded-md border bg-card px-3 py-2 text-xs" key={detail.id}>
@@ -5729,44 +5885,132 @@ function ReportPage({
           </CardContent>
         </Card>
       )}
-      {role === "Owner" && (
-        <Card className="bg-card/95 xl:col-span-2">
+      {reportKind === "finance" && role === "Owner" && (
+        <Card className="bg-card/95">
           <CardHeader>
             <p className="text-[11px] font-bold uppercase text-muted-foreground">Laporan Finance</p>
-            <CardTitle className="mt-1">Cash Flow, Kas dan Bank</CardTitle>
+            <CardTitle className="mt-1">Kas Bank, Laba Rugi, Arus Kas, Neraca Lite</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="grid gap-4">
+            <div className="grid gap-3 sm:grid-cols-2">
+              {[
+                ["Kas Cash", financeReport.cashIn, financeReport.cashOut, financeReport.netCash],
+                ["Kas Bank", financeReport.bankIn, financeReport.bankOut, financeReport.netBank],
+              ].map(([label, masuk, keluar, net]) => (
+                <div className="rounded-md border bg-muted/35 p-4" key={String(label)}>
+                  <p className="text-sm font-bold">{label}</p>
+                  <div className="mt-3 grid gap-2 text-sm">
+                    <div className="flex justify-between"><span className="text-muted-foreground">Masuk</span><span className="font-mono">{formatRupiah(Number(masuk))}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Keluar</span><span className="font-mono">{formatRupiah(Number(keluar))}</span></div>
+                    <div className="flex justify-between border-t pt-2 font-bold"><span>Saldo periode</span><span className="font-mono">{formatRupiah(Number(net))}</span></div>
+                  </div>
+                </div>
+              ))}
+            </div>
             <div className="overflow-x-auto rounded-md border">
-              <table className="w-full min-w-[860px] text-sm">
+              <table className="w-full min-w-[760px] text-sm">
                 <thead className="bg-muted/70 text-xs uppercase text-muted-foreground">
                   <tr>
-                    <th className="px-4 py-3 text-left">Tanggal</th>
-                    <th className="px-4 py-3 text-left">Tipe</th>
-                    <th className="px-4 py-3 text-left">Metode</th>
-                    <th className="px-4 py-3 text-left">Kategori</th>
-                    <th className="px-4 py-3 text-left">Nama</th>
-                    <th className="px-4 py-3 text-right">Jumlah</th>
-                    <th className="px-4 py-3 text-left">Operator</th>
+                    <th className="px-4 py-3 text-left">Description</th>
+                    <th className="px-4 py-3 text-right">Total</th>
+                    <th className="px-4 py-3 text-right">% of Income</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {financeReport.rows.map((item) => (
-                    <tr className="border-t" key={item.id}>
-                      <td className="px-4 py-3">{new Date(item.transactionDate).toLocaleString("id-ID")}</td>
-                      <td className="px-4 py-3">
-                        <Badge variant={item.type === "pendapatan" ? "success" : "warning"}>{item.type}</Badge>
-                      </td>
-                      <td className="px-4 py-3">{item.fundMethod}</td>
-                      <td className="px-4 py-3">{item.subcategory}</td>
-                      <td className="px-4 py-3">{item.itemName}</td>
-                      <td className="px-4 py-3 text-right font-mono">{formatRupiah(item.totalAmount)}</td>
-                      <td className="px-4 py-3">{item.operatorName}</td>
+                  {[
+                    ["Income", null, null],
+                    ["Pendapatan Cash", financeReport.cashIn, financeReport.grossIncome ? (financeReport.cashIn / financeReport.grossIncome) * 100 : 0],
+                    ["Pendapatan Bank", financeReport.bankIn, financeReport.grossIncome ? (financeReport.bankIn / financeReport.grossIncome) * 100 : 0],
+                    ["Total Income", financeReport.grossIncome, 100],
+                    ["Cost of Goods Sold", null, null],
+                    ["Pengeluaran Keperluan Stock", financeReport.cogs, financeReport.grossIncome ? (financeReport.cogs / financeReport.grossIncome) * 100 : 0],
+                    ["GROSS PROFIT", financeReport.grossProfit, financeReport.grossIncome ? (financeReport.grossProfit / financeReport.grossIncome) * 100 : 0],
+                    ["Expense", null, null],
+                    ["Non-stock Expense", financeReport.nonStockExpense - financeReport.priveExpense, financeReport.grossIncome ? ((financeReport.nonStockExpense - financeReport.priveExpense) / financeReport.grossIncome) * 100 : 0],
+                    ["Prive Owner", financeReport.priveExpense, financeReport.grossIncome ? (financeReport.priveExpense / financeReport.grossIncome) * 100 : 0],
+                    ["NET OPERATING INCOME", financeReport.totalNet, financeReport.grossIncome ? (financeReport.totalNet / financeReport.grossIncome) * 100 : 0],
+                  ].map(([label, total, percent]) => (
+                    <tr className={cn("border-t", String(label).includes("TOTAL") || String(label).includes("GROSS") || String(label).includes("NET") ? "font-bold" : "")} key={String(label)}>
+                      <td className="px-4 py-3">{label}</td>
+                      <td className="px-4 py-3 text-right font-mono">{total === null ? "" : formatRupiah(Number(total))}</td>
+                      <td className="px-4 py-3 text-right font-mono">{percent === null ? "" : Number(percent).toLocaleString("id-ID", { maximumFractionDigits: 2 })}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-            {!financeReport.rows.length && <EmptyState message="Belum ada transaksi finance pada periode ini." />}
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="rounded-md border bg-muted/35 p-4">
+                <p className="text-sm font-bold">Arus Kas</p>
+                <div className="mt-3 grid gap-2 text-sm">
+                  <div className="flex justify-between"><span className="text-muted-foreground">Arus masuk operasi</span><span className="font-mono">{formatRupiah(financeReport.grossIncome)}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Arus keluar stock</span><span className="font-mono">{formatRupiah(financeReport.cogs)}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Arus keluar non-stock</span><span className="font-mono">{formatRupiah(financeReport.nonStockExpense)}</span></div>
+                  <div className="flex justify-between border-t pt-2 font-bold"><span>Net cash flow</span><span className="font-mono">{formatRupiah(financeReport.totalNet)}</span></div>
+                </div>
+              </div>
+              <div className="rounded-md border bg-muted/35 p-4">
+                <p className="text-sm font-bold">Neraca Lite</p>
+                <div className="mt-3 grid gap-2 text-sm">
+                  <div className="flex justify-between"><span className="text-muted-foreground">Kas periode</span><span className="font-mono">{formatRupiah(financeReport.netCash)}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Bank periode</span><span className="font-mono">{formatRupiah(financeReport.netBank)}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Persediaan stock</span><span className="font-mono">{formatRupiah(value)}</span></div>
+                  <div className="flex justify-between border-t pt-2 font-bold"><span>Aset operasional lite</span><span className="font-mono">{formatRupiah(value + financeReport.totalNet)}</span></div>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+      {reportKind === "finance" && role === "Owner" && (
+        <Card className="bg-card/95 xl:col-span-2">
+          <CardHeader>
+            <p className="text-[11px] font-bold uppercase text-muted-foreground">Finance grouped log</p>
+            <CardTitle className="mt-1">Detail Transaksi per Nota</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto rounded-md border">
+              <table className="w-full min-w-[920px] text-sm">
+                <thead className="bg-muted/70 text-xs uppercase text-muted-foreground">
+                  <tr>
+                    <th className="px-4 py-3 text-left">Tanggal</th>
+                    <th className="px-4 py-3 text-left">No Transaksi / Nama</th>
+                    <th className="px-4 py-3 text-left">Tipe</th>
+                    <th className="px-4 py-3 text-left">Metode</th>
+                    <th className="px-4 py-3 text-left">Kategori</th>
+                    <th className="px-4 py-3 text-right">Qty</th>
+                    <th className="px-4 py-3 text-right">Nominal</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {groupedFinanceLogs.map((group) => (
+                    <Fragment key={group.transactionNo}>
+                      <tr className="border-t bg-muted/25">
+                        <td className="px-4 py-3 font-mono">{group.date.toLocaleString("id-ID")}</td>
+                        <td className="px-4 py-3 font-mono font-bold">{group.transactionNo}</td>
+                        <td className="px-4 py-3"><Badge variant={group.type === "pendapatan" ? "success" : "warning"}>{group.type}</Badge></td>
+                        <td className="px-4 py-3">{group.fundMethod}</td>
+                        <td className="px-4 py-3 text-muted-foreground">{group.rows[0]?.subcategory ?? "-"}</td>
+                        <td className="px-4 py-3 text-right font-mono">{group.totalQuantity.toLocaleString("id-ID")}</td>
+                        <td className="px-4 py-3 text-right font-mono font-bold">{formatRupiah(group.totalAmount)}</td>
+                      </tr>
+                      {group.rows.map((item) => (
+                        <tr className="border-t" key={item.id}>
+                          <td className="px-4 py-2 text-muted-foreground"></td>
+                          <td className="px-4 py-2">{item.itemName}</td>
+                          <td className="px-4 py-2 text-muted-foreground"></td>
+                          <td className="px-4 py-2 text-muted-foreground"></td>
+                          <td className="px-4 py-2">{item.subcategory}</td>
+                          <td className="px-4 py-2 text-right font-mono">{Number(item.quantity)} {item.unit}</td>
+                          <td className="px-4 py-2 text-right font-mono">{formatRupiah(item.totalAmount)}</td>
+                        </tr>
+                      ))}
+                    </Fragment>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {!groupedFinanceLogs.length && <EmptyState message="Belum ada transaksi finance pada periode ini." />}
           </CardContent>
         </Card>
       )}
@@ -5883,6 +6127,7 @@ function SettingsPage({
   inventory,
   categories,
   onSaved,
+  scope = "all",
 }: {
   role: Role;
   name: string;
@@ -5891,8 +6136,11 @@ function SettingsPage({
   inventory: Ingredient[];
   categories: Category[];
   onSaved: () => Promise<void>;
+  scope?: "all" | "stock" | "finance" | "account";
 }) {
-  const [activePanel, setActivePanel] = useState<SettingsPanel>(role === "Owner" ? "unit" : "bom");
+  const initialPanel: SettingsPanel =
+    scope === "finance" ? "finance_non_stock_subcategory" : scope === "account" ? "employees" : role === "Owner" ? "unit" : "bom";
+  const [activePanel, setActivePanel] = useState<SettingsPanel>(initialPanel);
   const [units, setUnits] = useState<string[]>([]);
   const [originalUnits, setOriginalUnits] = useState<string[]>([]);
   const [categoryDrafts, setCategoryDrafts] = useState<string[]>([]);
@@ -5923,7 +6171,10 @@ function SettingsPage({
 
   useEffect(() => {
     if (role !== "Owner") setActivePanel("bom");
-  }, [role]);
+    if (role === "Owner" && scope === "finance") setActivePanel("finance_non_stock_subcategory");
+    if (role === "Owner" && scope === "stock") setActivePanel("unit");
+    if (role === "Owner" && scope === "account") setActivePanel("employees");
+  }, [role, scope]);
 
   useEffect(() => {
     setFinanceEditRows((current) => {
@@ -6488,14 +6739,19 @@ function SettingsPage({
     { group: "Account", id: "employees", title: "Akses akun", count: employees.length, icon: Users },
     { group: "Operasional", id: "bom", title: "BOM", count: bomRecipes.length, icon: Database },
   ];
-  const settingCards = settingCardsBase.filter((item) =>
-    role === "Owner" ? true : canAccessBomUi(role) && item.id === "bom",
-  );
+  const settingCards = settingCardsBase.filter((item) => {
+    if (role !== "Owner") return canAccessBomUi(role) && item.id === "bom";
+    if (scope === "stock") return item.group === "Master Data Stock" || item.id === "bom";
+    if (scope === "finance") return item.group === "Master Data Finance";
+    if (scope === "account") return item.group === "Account";
+    return true;
+  });
   const settingCardGroups = Array.from(new Set(settingCards.map((item) => item.group)));
+  const showAccountPanel = scope === "all" || scope === "account";
 
   return (
     <div className="grid gap-5 xl:grid-cols-[0.72fr_1.28fr]">
-      <Card className="bg-card/95">
+      {showAccountPanel && <Card className="bg-card/95">
         <CardHeader>
           <p className="text-[11px] font-bold uppercase text-muted-foreground">Account</p>
           <CardTitle className="mt-1">Akun Aktif</CardTitle>
@@ -6542,7 +6798,7 @@ function SettingsPage({
             </Button>
           </div>
         </CardContent>
-      </Card>
+      </Card>}
 
       {settingCards.length > 0 && (
       <Card className="bg-card/95">

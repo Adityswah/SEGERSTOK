@@ -173,6 +173,7 @@ export const bomProductionRunsTable = pgTable(
   "bom_production_runs",
   {
     id: text("id").primaryKey(),
+    transactionNo: varchar("transaction_no", { length: 40 }),
     bomRecipeId: text("bom_recipe_id")
       .notNull()
       .references(() => bomRecipesTable.id, { onDelete: "cascade" }),
@@ -191,6 +192,7 @@ export const bomProductionRunsTable = pgTable(
   (table) => ({
     recipeIdx: index("bom_production_runs_recipe_idx").on(table.bomRecipeId),
     productionDateIdx: index("bom_production_runs_date_idx").on(table.productionDate),
+    transactionNoIdx: index("bom_production_runs_transaction_no_idx").on(table.transactionNo),
   }),
 );
 
@@ -235,6 +237,7 @@ export const stockTransactionsTable = pgTable(
   "stock_transactions",
   {
     id: text("id").primaryKey(),
+    transactionNo: varchar("transaction_no", { length: 40 }),
     ingredientId: text("ingredient_id")
       .notNull()
       .references(() => ingredientsTable.id, { onDelete: "restrict" }),
@@ -253,6 +256,7 @@ export const stockTransactionsTable = pgTable(
     ingredientIdx: index("stock_transactions_ingredient_idx").on(table.ingredientId),
     financeTransactionIdx: index("stock_transactions_finance_transaction_idx").on(table.financeTransactionId),
     dateIdx: index("stock_transactions_date_idx").on(table.transactionDate),
+    transactionNoIdx: index("stock_transactions_transaction_no_idx").on(table.transactionNo),
     clientRequestIdx: uniqueIndex("stock_transactions_client_request_id_idx").on(table.clientRequestId),
   }),
 );
@@ -261,6 +265,7 @@ export const financeTransactionsTable = pgTable(
   "finance_transactions",
   {
     id: text("id").primaryKey(),
+    transactionNo: varchar("transaction_no", { length: 40 }),
     type: financeTransactionTypeEnum("type").notNull(),
     fundMethod: financeFundMethodEnum("fund_method").notNull(),
     category: financeCategoryEnum("category").notNull(),
@@ -287,6 +292,7 @@ export const financeTransactionsTable = pgTable(
     fundMethodIdx: index("finance_transactions_fund_method_idx").on(table.fundMethod),
     categoryIdx: index("finance_transactions_category_idx").on(table.category),
     ingredientIdx: index("finance_transactions_ingredient_idx").on(table.ingredientId),
+    transactionNoIdx: index("finance_transactions_transaction_no_idx").on(table.transactionNo),
     operatorIdx: index("finance_transactions_operator_idx").on(table.operatorId),
   }),
 );

@@ -6,6 +6,7 @@ import { ingredientsTable, stockLedgerTable, stockTransactionsTable } from "@/db
 import { canWriteStock, getRole, requireSession } from "@/lib/api/authz";
 import { badRequest, created, forbidden, ok, serverError, unauthorized } from "@/lib/api/responses";
 import { guardMutation, parseJsonBody } from "@/lib/api/security";
+import { generateTransactionNo } from "@/lib/api/transaction-number";
 
 const transactionSchema = z.object({
   ingredientId: z.string().min(1),
@@ -65,6 +66,9 @@ export async function POST(request: Request) {
       if (existing) return ok(existing);
     }
 
+    const transactionDate = body.transactionDate ?? new Date();
+    const transactionNo = generateTransactionNo(body.type === "masuk" ? "STK-IN" : "STK-OUT", transactionDate);
+
     const [row] = await db.transaction(async (tx) => {
       const [ingredientBefore] = await tx
         .select({ stock: ingredientsTable.stock })
@@ -83,11 +87,12 @@ export async function POST(request: Request) {
         .insert(stockTransactionsTable)
         .values({
           id: crypto.randomUUID(),
+          transactionNo,
           ingredientId: body.ingredientId,
           type: body.type,
           quantity: String(body.quantity),
           unitPrice: body.unitPrice,
-          transactionDate: body.transactionDate ?? new Date(),
+          transactionDate,
           clientRequestId: body.clientRequestId,
           operatorId: session.user.id,
           operatorName: session.user.name,

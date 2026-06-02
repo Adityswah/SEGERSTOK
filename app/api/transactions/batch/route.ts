@@ -6,6 +6,7 @@ import { ingredientsTable, stockLedgerTable, stockTransactionsTable } from "@/db
 import { canWriteStock, getRole, requireSession } from "@/lib/api/authz";
 import { badRequest, forbidden, ok, serverError, unauthorized } from "@/lib/api/responses";
 import { guardMutation, parseJsonBody } from "@/lib/api/security";
+import { generateTransactionNo } from "@/lib/api/transaction-number";
 
 const transactionBatchSchema = z.object({
   type: z.enum(["masuk", "keluar"]),
@@ -37,6 +38,9 @@ export async function POST(request: Request) {
 
     const { data: body, response } = await parseJsonBody(request, transactionBatchSchema, 96_000);
     if (response) return response;
+
+    const transactionDate = body.transactionDate ?? new Date();
+    const transactionNo = generateTransactionNo(body.type === "masuk" ? "STK-IN" : "STK-OUT", transactionDate);
 
     const savedRows = await db.transaction(async (tx) => {
       const rows = [];
@@ -71,11 +75,12 @@ export async function POST(request: Request) {
           .insert(stockTransactionsTable)
           .values({
             id: crypto.randomUUID(),
+            transactionNo,
             ingredientId: row.ingredientId,
             type: body.type,
             quantity: String(row.quantity),
             unitPrice: body.type === "masuk" ? row.unitPrice : undefined,
-            transactionDate: body.transactionDate ?? new Date(),
+            transactionDate,
             clientRequestId,
             operatorId: session.user.id,
             operatorName: session.user.name,
