@@ -1161,6 +1161,7 @@ export function SotoStockApp() {
             {activePage === "dashboard" && role === "Owner" && (
               <DashboardPage
                 dailyExpenseBars={dailyExpenseBars}
+                financeTransactions={financeTransactions}
                 inventory={inventory}
                 lowStockItems={lowStockItems}
                 metrics={metrics}
@@ -1878,6 +1879,7 @@ function PageHeader({
 }
 
 function DashboardPage({
+  financeTransactions,
   lowStockItems,
   metrics,
   dailyExpenseBars,
@@ -1889,6 +1891,7 @@ function DashboardPage({
   onNavigate,
   onCriticalStock,
 }: {
+  financeTransactions: FinanceTransactionRow[];
   lowStockItems: Ingredient[];
   metrics: { total: number; critical: number; stockValue: number; weekExpense: number; weekUsage: number };
   dailyExpenseBars: Array<{ label: string; value: number }>;
@@ -1973,6 +1976,70 @@ function DashboardPage({
       return sum + Number(item.quantity) * (item.unitPrice ?? ingredient?.price ?? 0);
     }, 0);
   }, [dashboardRangeDays, ingredientById, transactions]);
+  const filteredFinanceRows = useMemo(() => {
+    const periodStart = dashboardRangeDays[0]?.start.getTime() ?? 0;
+    const periodEnd = dashboardRangeDays.at(-1)?.end.getTime() ?? Date.now();
+    return financeTransactions.filter((item) => {
+      const date = new Date(item.transactionDate).getTime();
+      return date >= periodStart && date <= periodEnd;
+    });
+  }, [dashboardRangeDays, financeTransactions]);
+  const dashboardFinanceMetrics = useMemo(() => {
+    const grossIncome = filteredFinanceRows.filter((item) => item.type === "pendapatan").reduce((sum, item) => sum + item.totalAmount, 0);
+    const expense = filteredFinanceRows.filter((item) => item.type === "pengeluaran").reduce((sum, item) => sum + item.totalAmount, 0);
+    const cashIncome = filteredFinanceRows
+      .filter((item) => item.type === "pendapatan" && item.fundMethod === "cash")
+      .reduce((sum, item) => sum + item.totalAmount, 0);
+    const cashExpense = filteredFinanceRows
+      .filter((item) => item.type === "pengeluaran" && item.fundMethod === "cash")
+      .reduce((sum, item) => sum + item.totalAmount, 0);
+    const bankIncome = filteredFinanceRows
+      .filter((item) => item.type === "pendapatan" && item.fundMethod === "bank")
+      .reduce((sum, item) => sum + item.totalAmount, 0);
+    const bankExpense = filteredFinanceRows
+      .filter((item) => item.type === "pengeluaran" && item.fundMethod === "bank")
+      .reduce((sum, item) => sum + item.totalAmount, 0);
+
+    return {
+      grossIncome,
+      expense,
+      netCash: cashIncome - cashExpense,
+      netBank: bankIncome - bankExpense,
+      totalNet: grossIncome - expense,
+    };
+  }, [filteredFinanceRows]);
+  const financeFlowSeries = useMemo(() => {
+    const income = new Map(flowBuckets.map((bucket) => [bucket.key, 0]));
+    const expense = new Map(flowBuckets.map((bucket) => [bucket.key, 0]));
+    for (const item of filteredFinanceRows) {
+      const key = bucketKeyForDate(new Date(item.transactionDate), flowBuckets, flowGranularity);
+      if (!key || !income.has(key)) continue;
+      const target = item.type === "pendapatan" ? income : expense;
+      target.set(key, (target.get(key) ?? 0) + item.totalAmount);
+    }
+    return {
+      labels: flowBuckets.map((bucket) => bucket.label),
+      masuk: flowBuckets.map((bucket) => income.get(bucket.key) ?? 0),
+      keluar: flowBuckets.map((bucket) => expense.get(bucket.key) ?? 0),
+    };
+  }, [filteredFinanceRows, flowBuckets, flowGranularity]);
+  const stockDashboardMetrics = useMemo(() => {
+    const periodStart = dashboardRangeDays[0]?.start.getTime() ?? 0;
+    const periodEnd = dashboardRangeDays.at(-1)?.end.getTime() ?? Date.now();
+    const periodTransactions = transactions.filter((item) => {
+      const date = transactionChartDate(item).getTime();
+      return date >= periodStart && date <= periodEnd;
+    });
+    const stockIn = periodTransactions.filter((item) => item.type === "masuk").reduce((sum, item) => sum + Number(item.quantity), 0);
+    const stockOut = periodTransactions.filter((item) => item.type === "keluar").reduce((sum, item) => sum + Number(item.quantity), 0);
+    return {
+      stockIn,
+      stockOut,
+      conditionCount: metrics.critical,
+      activeItems: metrics.total,
+      stockValue: metrics.stockValue,
+    };
+  }, [dashboardRangeDays, metrics.critical, metrics.stockValue, metrics.total, transactions]);
   const stockValueSeries = useMemo(() => {
     const impacts = new Map(stockBuckets.map((bucket) => [bucket.key, 0]));
     for (const transaction of transactions) {
@@ -2071,44 +2138,48 @@ function DashboardPage({
         </div>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <SimpleMetric
-          className="bg-card text-foreground"
-          detail={`${metrics.total} item aktif`}
-          icon={Package}
-          title="Total SKU"
-          value={`${metrics.total}`}
+      <section className="grid gap-3 rounded-lg border bg-card/55 p-3">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-[11px] font-bold uppercase text-muted-foreground">Dashboard Finance</p>
+            <h2 className="mt-1 text-lg font-bold">Cash Flow Periode Terpilih</h2>
+          </div>
+          <Wallet className="size-5 text-primary" />
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          <SimpleMetric className="bg-card text-success" detail="cash + bank" icon={Wallet} title="Pendapatan Kotor" value={formatRupiah(dashboardFinanceMetrics.grossIncome)} />
+          <SimpleMetric className="bg-card text-destructive" detail="cash + bank" icon={LogOut} title="Pengeluaran" value={formatRupiah(dashboardFinanceMetrics.expense)} />
+          <SimpleMetric className="bg-card text-foreground" detail="cash" icon={Database} title="Bersih Cash" value={formatRupiah(dashboardFinanceMetrics.netCash)} />
+          <SimpleMetric className="bg-card text-primary" detail="bank" icon={FileSpreadsheet} title="Bersih Bank" value={formatRupiah(dashboardFinanceMetrics.netBank)} />
+          <SimpleMetric className="bg-card text-success" detail="total bersih" icon={ShieldCheck} title="Pendapatan Bersih" value={formatRupiah(dashboardFinanceMetrics.totalNet)} />
+        </div>
+        <MultiMoneyLineChart
+          data={financeFlowSeries}
+          formatter={formatCompactRupiah}
+          granularity={flowGranularity}
+          keluarLabel="Pengeluaran"
+          masukLabel="Pendapatan"
+          onGranularityChange={setFlowGranularity}
+          title="Pendapatan Finance vs Pengeluaran"
         />
-        <SimpleMetric
-          className="bg-card text-destructive"
-          detail="perlu restock"
-          icon={AlertTriangle}
-          onClick={onCriticalStock}
-          title="Bahan Kritis"
-          value={`${metrics.critical}`}
-        />
-        <SimpleMetric
-          className="bg-card text-primary"
-          detail="periode terpilih"
-          icon={LogOut}
-          title="Pengeluaran"
-          value={formatRupiah(filteredExpense)}
-        />
-        <SimpleMetric
-          className="bg-card text-success"
-          detail="estimasi"
-          icon={Database}
-          title="Nilai Stok"
-          value={formatRupiah(metrics.stockValue)}
-        />
-      </div>
+      </section>
 
-      <MoneyLineChart
-        granularity={stockGranularity}
-        onGranularityChange={setStockGranularity}
-        series={stockValueSeries}
-        title="Nominal Uang Semua Stock"
-      />
+      <section className="grid gap-3 rounded-lg border bg-card/55 p-3">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-[11px] font-bold uppercase text-muted-foreground">Dashboard Stock</p>
+            <h2 className="mt-1 text-lg font-bold">Pergerakan dan Kondisi Stock</h2>
+          </div>
+          <Package className="size-5 text-primary" />
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          <SimpleMetric className="bg-card text-foreground" detail="item aktif" icon={Package} title="Total SKU" value={`${stockDashboardMetrics.activeItems}`} />
+          <SimpleMetric className="bg-card text-success" detail="periode terpilih" icon={Download} title="Stock Masuk" value={formatCompactNumber(stockDashboardMetrics.stockIn)} />
+          <SimpleMetric className="bg-card text-primary" detail="periode terpilih" icon={LogOut} title="Stock Keluar" value={formatCompactNumber(stockDashboardMetrics.stockOut)} />
+          <SimpleMetric className="bg-card text-destructive" detail="perlu restock" icon={AlertTriangle} onClick={onCriticalStock} title="Kondisi Stock" value={`${stockDashboardMetrics.conditionCount}`} />
+          <SimpleMetric className="bg-card text-success" detail="estimasi nilai" icon={Database} title="Nilai Stock" value={formatRupiah(stockDashboardMetrics.stockValue)} />
+        </div>
+      </section>
 
       <div className="grid gap-4 xl:grid-cols-2">
         <MultiMoneyLineChart
@@ -2677,12 +2748,16 @@ function MultiMoneyLineChart({
   formatter,
   granularity,
   onGranularityChange,
+  masukLabel = "Masuk",
+  keluarLabel = "Keluar",
 }: {
   title: string;
   data: { labels: string[]; masuk: number[]; keluar: number[] };
   formatter: (value: number) => string;
   granularity: ChartGranularity;
   onGranularityChange: (value: ChartGranularity) => void;
+  masukLabel?: string;
+  keluarLabel?: string;
 }) {
   const allValues = [...data.masuk, ...data.keluar];
   const width = 620;
@@ -2749,11 +2824,11 @@ function MultiMoneyLineChart({
           <div className="mt-3 flex flex-wrap items-center gap-3 text-xs font-medium text-muted-foreground">
             <span className="inline-flex items-center gap-1.5">
               <span className="size-2 rounded-full bg-success" />
-              Masuk {formatter(data.masuk.at(-1) ?? 0)}
+              {masukLabel} {formatter(data.masuk.at(-1) ?? 0)}
             </span>
             <span className="inline-flex items-center gap-1.5">
               <span className="size-2 rounded-full bg-primary" />
-              Keluar {formatter(data.keluar.at(-1) ?? 0)}
+              {keluarLabel} {formatter(data.keluar.at(-1) ?? 0)}
             </span>
           </div>
         </div>
@@ -5271,7 +5346,7 @@ function ReportPage({
   );
   const financeReport = useMemo(() => {
     const rows = financeTransactions.filter((item) => isDateInPeriod(new Date(item.transactionDate), exportPeriod));
-    const income = rows.filter((item) => item.type === "pendapatan").reduce((sum, item) => sum + item.totalAmount, 0);
+    const grossIncome = rows.filter((item) => item.type === "pendapatan").reduce((sum, item) => sum + item.totalAmount, 0);
     const expense = rows.filter((item) => item.type === "pengeluaran").reduce((sum, item) => sum + item.totalAmount, 0);
     const cashIn = rows
       .filter((item) => item.type === "pendapatan" && item.fundMethod === "cash")
@@ -5287,14 +5362,20 @@ function ReportPage({
       .reduce((sum, item) => sum + item.totalAmount, 0);
     return {
       rows,
-      income,
+      grossIncome,
       expense,
-      cashBalance: cashIn - cashOut,
-      bankBalance: bankIn - bankOut,
-      netCashFlow: income - expense,
-      balanceSheetLite: cashIn - cashOut + bankIn - bankOut + value,
+      netCash: cashIn - cashOut,
+      netBank: bankIn - bankOut,
+      totalNet: grossIncome - expense,
     };
-  }, [exportPeriod, financeTransactions, value]);
+  }, [exportPeriod, financeTransactions]);
+  const stockReport = useMemo(() => {
+    const rows = transactions.filter((item) => isDateInPeriod(transactionActivityDate(item), exportPeriod));
+    const stockIn = rows.filter((item) => item.type === "masuk").reduce((sum, item) => sum + Number(item.quantity), 0);
+    const stockOut = rows.filter((item) => item.type === "keluar").reduce((sum, item) => sum + Number(item.quantity), 0);
+    const conditionCount = inventory.filter((item) => stockStatus(item).label !== "Aman").length;
+    return { stockIn, stockOut, conditionCount };
+  }, [exportPeriod, inventory, transactions]);
 
   const transactionCards = useMemo(
     () =>
@@ -5416,17 +5497,36 @@ function ReportPage({
             </div>
             <div className="mt-4 grid gap-2 text-sm">
               {[
-                ["Pendapatan", financeReport.income],
-                ["Pengeluaran", financeReport.expense],
-                ["Saldo Cash", financeReport.cashBalance],
-                ["Saldo Bank", financeReport.bankBalance],
-                ["Arus Kas Bersih", financeReport.netCashFlow],
-                ["Laba/Rugi Manajerial", financeReport.netCashFlow],
-                ["Neraca Lite: Kas+Bank+Stok", financeReport.balanceSheetLite],
+                ["Pendapatan kotor (cash + bank)", financeReport.grossIncome],
+                ["Pengeluaran (cash + bank)", financeReport.expense],
+                ["Pendapatan Bersih Cash", financeReport.netCash],
+                ["Pendapatan Bersih Bank", financeReport.netBank],
+                ["Total Pendapatan Bersih", financeReport.totalNet],
               ].map(([label, nominal]) => (
                 <div className="flex items-center justify-between gap-3 border-t border-border/55 pt-2" key={String(label)}>
                   <span className="text-muted-foreground">{label}</span>
                   <span className="font-mono font-semibold">{formatRupiah(Number(nominal))}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="rounded-md border bg-card p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs text-muted-foreground">Laporan Stock</p>
+                <p className="mt-1 text-sm font-bold">{exportPeriod.label}</p>
+              </div>
+              <Package className="size-5 text-primary" />
+            </div>
+            <div className="mt-4 grid gap-2 text-sm">
+              {[
+                ["Stock Masuk", stockReport.stockIn],
+                ["Stock Keluar", stockReport.stockOut],
+                ["Kondisi perlu dicek", stockReport.conditionCount],
+              ].map(([label, nominal]) => (
+                <div className="flex items-center justify-between gap-3 border-t border-border/55 pt-2" key={String(label)}>
+                  <span className="text-muted-foreground">{label}</span>
+                  <span className="font-mono font-semibold">{Number(nominal).toLocaleString("id-ID")}</span>
                 </div>
               ))}
             </div>
