@@ -1,4 +1,4 @@
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { db } from "@/db";
@@ -66,43 +66,43 @@ export async function POST(request: Request) {
     const rows = "rows" in body ? body.rows : [body];
 
     const result = await db.transaction(async (tx) => {
-      const saved = [];
-      for (const row of rows) {
-        const [ingredient] = await tx
-          .select()
-          .from(ingredientsTable)
-          .where(eq(ingredientsTable.id, row.ingredientId))
-          .limit(1);
-        if (!ingredient) throw new Error("Ingredient tidak ditemukan");
+      const ingredientIds = Array.from(new Set(rows.map((row) => row.ingredientId)));
+      const ingredients = await tx.select().from(ingredientsTable).where(inArray(ingredientsTable.id, ingredientIds));
+      if (ingredients.length !== ingredientIds.length) throw new Error("Ingredient tidak ditemukan");
+      const ingredientMap = new Map(ingredients.map((ingredient) => [ingredient.id, ingredient]));
 
+      const savedIngredients = [];
+      const ledgerRows = rows.map((row) => {
+        const ingredient = ingredientMap.get(row.ingredientId);
+        if (!ingredient) throw new Error("Ingredient tidak ditemukan");
         const stockBefore = Number(ingredient.stock);
         const stockAfter = row.actualStock;
+        return {
+          id: crypto.randomUUID(),
+          ingredientId: row.ingredientId,
+          source: "owner_stock_correction" as const,
+          referenceId: null,
+          stockBefore: String(stockBefore),
+          stockAfter: String(stockAfter),
+          delta: String((stockAfter - stockBefore).toFixed(3)),
+          reason: row.reason,
+          operatorId: session.user.id,
+          operatorName: session.user.name,
+        };
+      });
+
+      for (const row of rows) {
         const [updated] = await tx
           .update(ingredientsTable)
-          .set({ stock: String(stockAfter), updatedAt: new Date() })
+          .set({ stock: String(row.actualStock), updatedAt: new Date() })
           .where(eq(ingredientsTable.id, row.ingredientId))
           .returning();
         if (!updated) throw new Error("Ingredient gagal diperbarui");
-
-        const [ledger] = await tx
-          .insert(stockLedgerTable)
-          .values({
-            id: crypto.randomUUID(),
-            ingredientId: row.ingredientId,
-            source: "owner_stock_correction",
-            referenceId: null,
-            stockBefore: String(stockBefore),
-            stockAfter: String(stockAfter),
-            delta: String((stockAfter - stockBefore).toFixed(3)),
-            reason: row.reason,
-            operatorId: session.user.id,
-            operatorName: session.user.name,
-          })
-          .returning();
-
-        saved.push({ ingredient: updated, ledger });
+        savedIngredients.push(updated);
       }
-      return saved;
+
+      const ledgers = await tx.insert(stockLedgerTable).values(ledgerRows).returning();
+      return savedIngredients.map((ingredient, index) => ({ ingredient, ledger: ledgers[index] }));
     });
 
     if (!result.length) return badRequest("Koreksi stok gagal disimpan");

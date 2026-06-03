@@ -186,11 +186,30 @@ export async function POST(request: Request) {
         const opnameSession = await ensureSessionForDate(tx, body.opnameDate, authSession.user.id, authSession.user.name);
         if (opnameSession.status === "finalized") throw new Error("Opname sudah finalized");
 
-        for (const row of body.rows) {
-          const ingredient = ingredientMap.get(row.ingredientId);
-          if (!ingredient) continue;
+        const summaryRows = body.rows.map((row) => {
+          const ingredient = ingredientMap.get(row.ingredientId)!;
           const assignments = getOpnameAssignments({ name: ingredient.name, category: ingredient.category });
-          const assignment = role === "Owner" ? {
+          return {
+            id: crypto.randomUUID(),
+            sessionId: opnameSession.id,
+            ingredientId: ingredient.id,
+            ingredientNameSnapshot: ingredient.name,
+            categorySnapshot: ingredient.category,
+            unitSnapshot: ingredient.unit,
+            systemStockBefore: ingredient.stock,
+            needsOwnerReview: assignments.length > 1,
+          };
+        });
+
+        await tx.insert(stockOpnameItemSummariesTable).values(summaryRows).onConflictDoNothing();
+
+        await tx
+          .insert(stockOpnameRoleInputsTable)
+          .values(
+            body.rows.map((row) => {
+              const ingredient = ingredientMap.get(row.ingredientId)!;
+              const assignments = getOpnameAssignments({ name: ingredient.name, category: ingredient.category });
+              const assignment = role === "Owner" ? {
             areaName: "Final aktual Owner",
             inputType: "primary" as const,
             role,
@@ -199,24 +218,7 @@ export async function POST(request: Request) {
             inputType: "primary" as const,
             role: role as StaffRole,
           };
-
-          await tx
-            .insert(stockOpnameItemSummariesTable)
-            .values({
-              id: crypto.randomUUID(),
-              sessionId: opnameSession.id,
-              ingredientId: ingredient.id,
-              ingredientNameSnapshot: ingredient.name,
-              categorySnapshot: ingredient.category,
-              unitSnapshot: ingredient.unit,
-              systemStockBefore: ingredient.stock,
-              needsOwnerReview: assignments.length > 1,
-            })
-            .onConflictDoNothing();
-
-          await tx
-            .insert(stockOpnameRoleInputsTable)
-            .values({
+              return {
               id: crypto.randomUUID(),
               sessionId: opnameSession.id,
               ingredientId: ingredient.id,
@@ -227,32 +229,45 @@ export async function POST(request: Request) {
               note: row.note,
               inputById: authSession.user.id,
               inputByName: authSession.user.name,
-            })
-            .onConflictDoUpdate({
-              target: [
-                stockOpnameRoleInputsTable.sessionId,
-                stockOpnameRoleInputsTable.ingredientId,
-                stockOpnameRoleInputsTable.role,
-              ],
-              set: {
-                actualQty: String(row.actualQty),
-                note: row.note,
-                inputById: authSession.user.id,
-                inputByName: authSession.user.name,
-                inputAt: new Date(),
-              },
-            });
+              };
+            }),
+          )
+          .onConflictDoUpdate({
+            target: [
+              stockOpnameRoleInputsTable.sessionId,
+              stockOpnameRoleInputsTable.ingredientId,
+              stockOpnameRoleInputsTable.role,
+            ],
+            set: {
+              actualQty: sql`excluded.actual_qty`,
+              note: sql`excluded.note`,
+              inputById: authSession.user.id,
+              inputByName: authSession.user.name,
+              inputAt: new Date(),
+            },
+          });
 
-          const roleInputs = await tx
-            .select({ actualQty: stockOpnameRoleInputsTable.actualQty })
-            .from(stockOpnameRoleInputsTable)
-            .where(
-              and(
-                eq(stockOpnameRoleInputsTable.sessionId, opnameSession.id),
-                eq(stockOpnameRoleInputsTable.ingredientId, ingredient.id),
-              ),
-            );
-          const totalRoleActual = summarizeTotals(roleInputs);
+        const allRoleInputs = await tx
+          .select({
+            ingredientId: stockOpnameRoleInputsTable.ingredientId,
+            actualQty: stockOpnameRoleInputsTable.actualQty,
+          })
+          .from(stockOpnameRoleInputsTable)
+          .where(
+            and(
+              eq(stockOpnameRoleInputsTable.sessionId, opnameSession.id),
+              inArray(stockOpnameRoleInputsTable.ingredientId, ingredientIds),
+            ),
+          );
+        const totalsByIngredient = new Map<string, number>();
+        for (const input of allRoleInputs) {
+          totalsByIngredient.set(input.ingredientId, (totalsByIngredient.get(input.ingredientId) ?? 0) + Number(input.actualQty));
+        }
+
+        for (const row of body.rows) {
+          const ingredient = ingredientMap.get(row.ingredientId);
+          if (!ingredient) continue;
+          const totalRoleActual = totalsByIngredient.get(ingredient.id) ?? 0;
           const systemStock = Number(ingredient.stock);
           const ownerVarianceQty = systemStock - row.actualQty;
           await tx
@@ -297,17 +312,18 @@ export async function POST(request: Request) {
       if (opnameSession.status === "finalized") return forbidden("Opname finalized tidak bisa diedit");
 
       await db.transaction(async (tx) => {
+        const summaries = await tx
+          .select()
+          .from(stockOpnameItemSummariesTable)
+          .where(
+            and(
+              eq(stockOpnameItemSummariesTable.sessionId, body.sessionId),
+              inArray(stockOpnameItemSummariesTable.ingredientId, body.rows.map((row) => row.ingredientId)),
+            ),
+          );
+        const summaryMap = new Map(summaries.map((summary) => [summary.ingredientId, summary]));
         for (const row of body.rows) {
-          const [summary] = await tx
-            .select()
-            .from(stockOpnameItemSummariesTable)
-            .where(
-              and(
-                eq(stockOpnameItemSummariesTable.sessionId, body.sessionId),
-                eq(stockOpnameItemSummariesTable.ingredientId, row.ingredientId),
-              ),
-            )
-            .limit(1);
+          const summary = summaryMap.get(row.ingredientId);
           if (!summary) continue;
           const systemStock = Number(summary.systemStockBefore);
           const varianceQty = systemStock - row.finalActual;
@@ -365,23 +381,27 @@ export async function POST(request: Request) {
       const missingFinal = summaries.find((item) => item.finalActual === null);
       if (missingFinal) throw new Error(`Final aktual ${missingFinal.ingredientNameSnapshot} belum diisi`);
 
+      const ingredientIds = summaries.map((item) => item.ingredientId);
+      const ingredients = ingredientIds.length
+        ? await tx
+            .select({ id: ingredientsTable.id, stock: ingredientsTable.stock })
+            .from(ingredientsTable)
+            .where(inArray(ingredientsTable.id, ingredientIds))
+        : [];
+      const ingredientStockMap = new Map(ingredients.map((ingredient) => [ingredient.id, Number(ingredient.stock)]));
+      const ledgerRows = [];
       for (const item of summaries) {
         const finalActual = Number(item.finalActual);
-        const [ingredient] = await tx
-          .select({ stock: ingredientsTable.stock })
-          .from(ingredientsTable)
-          .where(eq(ingredientsTable.id, item.ingredientId))
-          .limit(1);
-        if (!ingredient) continue;
-        const stockBefore = Number(ingredient.stock);
+        const stockBefore = ingredientStockMap.get(item.ingredientId);
+        if (stockBefore === undefined) continue;
         await tx
           .update(ingredientsTable)
           .set({ stock: String(finalActual), updatedAt: new Date() })
           .where(eq(ingredientsTable.id, item.ingredientId));
-        await tx.insert(stockLedgerTable).values({
+        ledgerRows.push({
           id: crypto.randomUUID(),
           ingredientId: item.ingredientId,
-          source: "monthly_opname_final",
+          source: "monthly_opname_final" as const,
           referenceId: body.sessionId,
           stockBefore: String(stockBefore),
           stockAfter: String(finalActual),
@@ -391,6 +411,7 @@ export async function POST(request: Request) {
           operatorName: authSession.user.name,
         });
       }
+      if (ledgerRows.length) await tx.insert(stockLedgerTable).values(ledgerRows);
 
       await tx
         .update(stockOpnameSessionsTable)

@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, isNull, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { db } from "@/db";
@@ -124,116 +124,115 @@ export async function POST(request: Request) {
     const transactionNo = generateTransactionNo(body.type === "pendapatan" ? "FIN-IN" : "FIN-OUT", transactionDate);
 
     const rows = await db.transaction(async (tx) => {
-      const savedRows = [];
-      for (const item of items) {
-        let stockTransactionId: string | null = null;
-        let itemName = item.itemName ?? subcategory ?? "Pendapatan";
-        let unit = body.type === "pendapatan" ? "transaksi" : "item";
-        let ingredientId: string | null = null;
-        let rowSubcategory = subcategory ?? "Pendapatan";
-
-        if (category === "keperluan_stock") {
-          const [ingredient] = await tx
+      const ingredientIds = category === "keperluan_stock"
+        ? Array.from(new Set(items.map((item) => item.ingredientId!).filter(Boolean)))
+        : [];
+      const ingredients = ingredientIds.length
+        ? await tx
             .select()
             .from(ingredientsTable)
-            .where(and(eq(ingredientsTable.id, item.ingredientId!), eq(ingredientsTable.active, true)))
-            .limit(1);
+            .where(and(inArray(ingredientsTable.id, ingredientIds), eq(ingredientsTable.active, true)))
+        : [];
+      if (ingredients.length !== ingredientIds.length) throw new Error("Barang Master Data tidak ditemukan");
 
-          if (!ingredient) throw new Error("Barang Master Data tidak ditemukan");
-
-          ingredientId = ingredient.id;
-          itemName = ingredient.name;
-          unit = ingredient.unit;
-          rowSubcategory = ingredient.category;
-        }
-
+      const ingredientMap = new Map(ingredients.map((ingredient) => [ingredient.id, ingredient]));
+      const stockRunning = new Map(ingredients.map((ingredient) => [ingredient.id, Number(ingredient.stock)]));
+      const stockDeltaByIngredient = new Map<string, number>();
+      const preparedRows = items.map((item) => {
+        const ingredient = item.ingredientId ? ingredientMap.get(item.ingredientId) : null;
         const financeId = crypto.randomUUID();
-        const totalAmount = Math.round(item.quantity * item.unitPrice);
-        const [financeRow] = await tx
-          .insert(financeTransactionsTable)
-          .values({
+        const stockTransactionId = body.type === "pengeluaran" && category === "keperluan_stock" ? crypto.randomUUID() : null;
+        const quantity = item.quantity;
+        const unitPrice = item.unitPrice;
+        const stockBefore = ingredient ? stockRunning.get(ingredient.id) ?? Number(ingredient.stock) : 0;
+        const stockAfter = ingredient ? stockBefore + quantity : 0;
+        if (ingredient) {
+          stockRunning.set(ingredient.id, stockAfter);
+          stockDeltaByIngredient.set(ingredient.id, (stockDeltaByIngredient.get(ingredient.id) ?? 0) + quantity);
+        }
+        return {
+          financeId,
+          stockTransactionId,
+          ingredient,
+          item,
+          stockBefore,
+          stockAfter,
+          totalAmount: Math.round(quantity * unitPrice),
+        };
+      });
+
+      const financeRows = await tx
+        .insert(financeTransactionsTable)
+        .values(
+          preparedRows.map(({ financeId, stockTransactionId, ingredient, item, totalAmount }) => ({
             id: financeId,
             transactionNo,
             type: body.type,
             fundMethod: body.fundMethod,
             category,
-            subcategory: rowSubcategory,
-            ingredientId,
-            itemName,
+            subcategory: ingredient ? ingredient.category : subcategory ?? "Pendapatan",
+            ingredientId: ingredient?.id ?? null,
+            itemName: ingredient?.name ?? item.itemName ?? subcategory ?? "Pendapatan",
             quantity: String(item.quantity),
-            unit,
+            unit: ingredient?.unit ?? (body.type === "pendapatan" ? "transaksi" : "item"),
             unitPrice: item.unitPrice,
             totalAmount,
             transactionDate,
             note: body.note,
             attachmentName: body.attachmentName,
+            linkedStockTransactionId: stockTransactionId,
             operatorId: session.user.id,
             operatorName: session.user.name,
-          })
-          .returning();
+          })),
+        )
+        .returning();
 
-        if (body.type === "pengeluaran" && category === "keperluan_stock" && ingredientId) {
-          const [ingredientBefore] = await tx
-            .select({ stock: ingredientsTable.stock })
-            .from(ingredientsTable)
-            .where(eq(ingredientsTable.id, ingredientId))
-            .limit(1);
+      const stockRows = preparedRows.filter((row) => row.ingredient && row.stockTransactionId);
+      if (stockRows.length) {
+        await tx.insert(stockTransactionsTable).values(
+          stockRows.map(({ financeId, stockTransactionId, ingredient, item }) => ({
+            id: stockTransactionId!,
+            transactionNo,
+            ingredientId: ingredient!.id,
+            type: "masuk" as const,
+            quantity: String(item.quantity),
+            unitPrice: item.unitPrice,
+            financeTransactionId: financeId,
+            transactionDate,
+            clientRequestId: `finance:${financeId}`,
+            operatorId: session.user.id,
+            operatorName: session.user.name,
+            note: body.note ? `Finance Keperluan Stock - ${body.note}` : "Finance Keperluan Stock",
+          })),
+        );
 
-          if (!ingredientBefore) throw new Error("Barang Master Data tidak ditemukan");
-          const stockBefore = Number(ingredientBefore.stock);
-          const stockAfter = stockBefore + item.quantity;
-
-          const [stockTransaction] = await tx
-            .insert(stockTransactionsTable)
-            .values({
-              id: crypto.randomUUID(),
-              transactionNo,
-              ingredientId,
-              type: "masuk",
-              quantity: String(item.quantity),
-              unitPrice: item.unitPrice,
-              financeTransactionId: financeId,
-              transactionDate,
-              clientRequestId: `finance:${financeId}`,
-              operatorId: session.user.id,
-              operatorName: session.user.name,
-              note: body.note ? `Finance Keperluan Stock - ${body.note}` : "Finance Keperluan Stock",
-            })
-            .returning();
-
-          stockTransactionId = stockTransaction.id;
-
+        for (const [ingredientId, delta] of stockDeltaByIngredient) {
           await tx
             .update(ingredientsTable)
             .set({
-              stock: sql`${ingredientsTable.stock} + ${String(item.quantity)}`,
+              stock: sql`${ingredientsTable.stock} + ${String(delta)}`,
               updatedAt: new Date(),
             })
             .where(eq(ingredientsTable.id, ingredientId));
+        }
 
-          await tx.insert(stockLedgerTable).values({
+        await tx.insert(stockLedgerTable).values(
+          stockRows.map(({ stockTransactionId, ingredient, item, stockBefore, stockAfter }) => ({
             id: crypto.randomUUID(),
-            ingredientId,
-            source: "stock_in",
-            referenceId: stockTransaction.id,
+            ingredientId: ingredient!.id,
+            source: "stock_in" as const,
+            referenceId: stockTransactionId,
             stockBefore: String(stockBefore),
             stockAfter: String(stockAfter),
             delta: String(item.quantity.toFixed(3)),
             reason: body.note ? `Finance Keperluan Stock - ${body.note}` : "Finance Keperluan Stock",
             operatorId: session.user.id,
             operatorName: session.user.name,
-          });
-
-          await tx
-            .update(financeTransactionsTable)
-            .set({ linkedStockTransactionId: stockTransactionId, updatedAt: new Date() })
-            .where(eq(financeTransactionsTable.id, financeId));
-        }
-
-        savedRows.push({ ...financeRow, linkedStockTransactionId: stockTransactionId });
+          })),
+        );
       }
 
-      return savedRows;
+      return financeRows;
     });
 
     return created(rows.length === 1 ? rows[0] : { inserted: rows.length, rows });

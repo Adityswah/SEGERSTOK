@@ -1,4 +1,4 @@
-import { eq, sql } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { db } from "@/db";
@@ -43,83 +43,87 @@ export async function POST(request: Request) {
     const transactionNo = generateTransactionNo(body.type === "masuk" ? "STK-IN" : "STK-OUT", transactionDate);
 
     const savedRows = await db.transaction(async (tx) => {
-      const rows = [];
+      const prepared = body.rows.map((row, index) => ({
+        ...row,
+        id: crypto.randomUUID(),
+        clientRequestId: `${body.clientBatchId}:${index}:${row.ingredientId}`,
+      }));
+      const existingRows = await tx
+        .select()
+        .from(stockTransactionsTable)
+        .where(inArray(stockTransactionsTable.clientRequestId, prepared.map((row) => row.clientRequestId)));
+      const existingByClientId = new Map(existingRows.map((row) => [row.clientRequestId, row]));
+      const newRows = prepared.filter((row) => !existingByClientId.has(row.clientRequestId));
+      if (!newRows.length) return existingRows.map((row) => ({ row, skipped: true }));
 
-      for (const [index, row] of body.rows.entries()) {
-        const clientRequestId = `${body.clientBatchId}:${index}:${row.ingredientId}`;
-        const [existing] = await tx
-          .select()
-          .from(stockTransactionsTable)
-          .where(eq(stockTransactionsTable.clientRequestId, clientRequestId))
-          .limit(1);
+      const ingredientIds = Array.from(new Set(newRows.map((row) => row.ingredientId)));
+      const ingredients = await tx
+        .select({ id: ingredientsTable.id, stock: ingredientsTable.stock })
+        .from(ingredientsTable)
+        .where(inArray(ingredientsTable.id, ingredientIds));
+      if (ingredients.length !== ingredientIds.length) throw new Error("Ada ingredient yang tidak ditemukan");
 
-        if (existing) {
-          rows.push({ row: existing, skipped: true });
-          continue;
-        }
+      const ingredientStock = new Map(ingredients.map((ingredient) => [ingredient.id, Number(ingredient.stock)]));
+      const runningStock = new Map(ingredientStock);
+      const stockDeltaByIngredient = new Map<string, number>();
+      const ledgerDrafts = newRows.map((row) => {
+        const stockBefore = runningStock.get(row.ingredientId);
+        if (stockBefore === undefined) throw new Error(`Ingredient ${row.ingredientId} tidak ditemukan`);
+        const stockAfter = body.type === "masuk" ? stockBefore + row.quantity : stockBefore - row.quantity;
+        if (stockAfter < 0) throw new Error(`Stok ingredient ${row.ingredientId} tidak cukup untuk transaksi keluar`);
+        runningStock.set(row.ingredientId, stockAfter);
+        stockDeltaByIngredient.set(row.ingredientId, (stockDeltaByIngredient.get(row.ingredientId) ?? 0) + (stockAfter - stockBefore));
+        return { row, stockBefore, stockAfter };
+      });
 
-        const [ingredientBefore] = await tx
-          .select({ stock: ingredientsTable.stock })
-          .from(ingredientsTable)
-          .where(eq(ingredientsTable.id, row.ingredientId))
-          .limit(1);
-
-        if (!ingredientBefore) throw new Error(`Ingredient ${row.ingredientId} tidak ditemukan`);
-
-        const stockBefore = Number(ingredientBefore.stock);
-        if (body.type === "keluar" && stockBefore < row.quantity) {
-          throw new Error(`Stok ingredient ${row.ingredientId} tidak cukup untuk transaksi keluar`);
-        }
-
-        const [transaction] = await tx
-          .insert(stockTransactionsTable)
-          .values({
-            id: crypto.randomUUID(),
+      const insertedRows = await tx
+        .insert(stockTransactionsTable)
+        .values(
+          newRows.map((row) => ({
+            id: row.id,
             transactionNo,
             ingredientId: row.ingredientId,
             type: body.type,
             quantity: String(row.quantity),
             unitPrice: body.type === "masuk" ? row.unitPrice : undefined,
             transactionDate,
-            clientRequestId,
+            clientRequestId: row.clientRequestId,
             operatorId: session.user.id,
             operatorName: session.user.name,
             note: row.note,
-          })
-          .returning();
+          })),
+        )
+        .returning();
 
-        const stockExpression =
-          body.type === "masuk"
-            ? sql`${ingredientsTable.stock} + ${String(row.quantity)}`
-            : sql`${ingredientsTable.stock} - ${String(row.quantity)}`;
-
-        const stockAfter = body.type === "masuk" ? stockBefore + row.quantity : stockBefore - row.quantity;
-
+      for (const [ingredientId, delta] of stockDeltaByIngredient) {
         await tx
           .update(ingredientsTable)
           .set({
-            stock: stockExpression,
+            stock: sql`${ingredientsTable.stock} + ${String(delta)}`,
             updatedAt: new Date(),
           })
-          .where(eq(ingredientsTable.id, row.ingredientId));
+          .where(eq(ingredientsTable.id, ingredientId));
+      }
 
-        await tx.insert(stockLedgerTable).values({
+      await tx.insert(stockLedgerTable).values(
+        ledgerDrafts.map(({ row, stockBefore, stockAfter }) => ({
           id: crypto.randomUUID(),
           ingredientId: row.ingredientId,
-          source: body.type === "masuk" ? "stock_in" : "stock_out",
-          referenceId: transaction.id,
+          source: body.type === "masuk" ? "stock_in" as const : "stock_out" as const,
+          referenceId: row.id,
           stockBefore: String(stockBefore),
           stockAfter: String(stockAfter),
           delta: String((stockAfter - stockBefore).toFixed(3)),
           reason: row.note,
           operatorId: session.user.id,
           operatorName: session.user.name,
-        });
+        })),
+      );
 
-        rows.push({ row: transaction, skipped: false });
-      }
-
-      return rows;
+      return [
+        ...existingRows.map((row) => ({ row, skipped: true })),
+        ...insertedRows.map((row) => ({ row, skipped: false })),
+      ];
     });
 
     return ok({
